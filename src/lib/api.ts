@@ -24,6 +24,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && path !== '/me' && path !== '/login') window.dispatchEvent(new Event('tj:signed-out'));
+    // Auditor's daily session needs a new selfie: send them back to the selfie screen.
+    if (data.code === 'selfie_required') window.dispatchEvent(new Event('tj:selfie-required'));
     throw new ApiError(data.error ?? `Request failed (${res.status})`, res.status, data.problems ?? []);
   }
   return data as T;

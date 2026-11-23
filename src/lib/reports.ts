@@ -175,7 +175,12 @@ async function loadPhotos(d: VisitDetail, onProgress?: (msg: string) => void) {
   return map;
 }
 
-function photoPdf(d: VisitDetail, s: Settings, imgs: Map<number, Img>, sigs: { auditor: Img | null; manager: Img | null }): Blob {
+function photoPdf(
+  d: VisitDetail,
+  s: Settings,
+  imgs: Map<number, Img>,
+  sigs: { auditor: Img | null; manager: Img | null; selfie: Img | null },
+): Blob {
   const v = d.visit;
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210;
@@ -196,8 +201,16 @@ function photoPdf(d: VisitDetail, s: Settings, imgs: Map<number, Img>, sigs: { a
   ];
   info.forEach(([k, val], i) => {
     pdf.setFont('helvetica', 'bold').text(`${k}:`, M, 32 + i * 6);
-    pdf.setFont('helvetica', 'normal').text(String(val), M + 32, 32 + i * 6);
+    pdf.setFont('helvetica', 'normal').text(String(val), M + 32, 32 + i * 6, { maxWidth: 110 });
   });
+  // Auditor's live selfie at check-in, top right of the cover page
+  if (sigs.selfie) {
+    const r = Math.min(45 / sigs.selfie.w, 60 / sigs.selfie.h);
+    const w = sigs.selfie.w * r;
+    pdf.addImage(sigs.selfie.bytes, sigs.selfie.type, W - M - w, 26, w, sigs.selfie.h * r);
+    pdf.setFontSize(7).setTextColor(100).text('Auditor selfie at check-in', W - M - w, 26 + sigs.selfie.h * r + 4);
+    pdf.setFontSize(10).setTextColor(0);
+  }
   let y = 32 + info.length * 6 + 6;
   pdf.setFont('helvetica', 'bold').text('Summary', M, y);
   pdf.setFont('helvetica', 'normal');
@@ -288,6 +301,7 @@ async function addCentreToZip(folder: JSZip, d: VisitDetail, s: Settings, onProg
   const sigs = {
     auditor: d.visit.has_auditor_signature ? await loadImg(`/visits/${d.visit.id}/signature/auditor`) : null,
     manager: d.visit.has_manager_signature ? await loadImg(`/visits/${d.visit.id}/signature/manager`) : null,
+    selfie: d.visit.has_checkin_selfie ? await loadImg(`/visits/${d.visit.id}/checkin-selfie`) : null,
   };
   const name = baseName(d);
   folder.file(`Stock_Verification_${name}.xlsx`, await centreWorkbook(d, s));

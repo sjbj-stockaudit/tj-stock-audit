@@ -22,14 +22,8 @@ async function loadImage(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
 
 export type StampedPhoto = { blob: Blob; fix: Fix | null; takenAt: string };
 
-/**
- * Shrink a camera photo to ~150–250 KB and burn a GPS/time stamp onto it,
- * replacing the separate "GPS Map Camera" app the team uses today.
- */
-export async function compressAndStamp(file: File, title: string, place: string): Promise<StampedPhoto> {
-  const [img, fix] = await Promise.all([loadImage(file), getPosition(10000).catch(() => null)]);
-  const w0 = 'naturalWidth' in img ? img.naturalWidth : img.width;
-  const h0 = 'naturalHeight' in img ? img.naturalHeight : img.height;
+/** Draw an image onto a canvas (max 1600 px), burn in a GPS/time stamp, and encode as JPEG. */
+async function stampAndEncode(img: CanvasImageSource, w0: number, h0: number, title: string, place: string, fix: Fix | null): Promise<StampedPhoto> {
   const scale = Math.min(1, MAX_SIDE / Math.max(w0, h0));
   const w = Math.round(w0 * scale);
   const h = Math.round(h0 * scale);
@@ -45,7 +39,7 @@ export async function compressAndStamp(file: File, title: string, place: string)
     place,
     `${fmtDateTime(takenAt)} IST`,
     fix ? `Lat ${fix.lat.toFixed(6)}°  Long ${fix.lng.toFixed(6)}°  (±${Math.round(fix.accuracy)} m)` : 'Location unavailable',
-  ];
+  ].filter(Boolean);
   const fs = Math.max(14, Math.round(w / 40));
   const pad = Math.round(fs * 0.6);
   const bandH = lines.length * fs * 1.3 + pad * 2;
@@ -62,4 +56,21 @@ export async function compressAndStamp(file: File, title: string, place: string)
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not process the photo.'))), 'image/jpeg', QUALITY),
   );
   return { blob, fix, takenAt };
+}
+
+/**
+ * Shrink a camera photo to ~150–250 KB and burn a GPS/time stamp onto it,
+ * replacing the separate "GPS Map Camera" app the team uses today.
+ */
+export async function compressAndStamp(file: File, title: string, place: string): Promise<StampedPhoto> {
+  const [img, fix] = await Promise.all([loadImage(file), getPosition(10000).catch(() => null)]);
+  const w0 = 'naturalWidth' in img ? img.naturalWidth : img.width;
+  const h0 = 'naturalHeight' in img ? img.naturalHeight : img.height;
+  return stampAndEncode(img, w0, h0, title, place, fix);
+}
+
+/** Grab the current frame of a live camera <video> and stamp it. */
+export async function captureVideoFrame(video: HTMLVideoElement, title: string, place: string): Promise<StampedPhoto> {
+  const fix = await getPosition(10000).catch(() => null);
+  return stampAndEncode(video, video.videoWidth, video.videoHeight, title, place, fix);
 }

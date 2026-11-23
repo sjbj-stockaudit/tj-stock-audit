@@ -18,12 +18,12 @@ type BillVisit = {
   auditor_id: number;
   auditor_name: string;
   username: string;
-  agency: string | null;
+  team: string | null;
   phone: string | null;
   tractor_count: number;
 };
 
-type Person = { id: number; name: string; agency: string; approved: BillVisit[]; pending: BillVisit[]; days: number; hours: number };
+type Person = { id: number; name: string; team: string; approved: BillVisit[]; pending: BillVisit[]; days: number; hours: number };
 
 export default function Billing() {
   const [month, setMonth] = useState(todayIST().slice(0, 7));
@@ -33,7 +33,7 @@ export default function Billing() {
   const people = useMemo<Person[]>(() => {
     const map = new Map<number, Person>();
     for (const v of data.data?.visits ?? []) {
-      const p = map.get(v.auditor_id) ?? { id: v.auditor_id, name: v.auditor_name, agency: v.agency ?? '', approved: [], pending: [], days: 0, hours: 0 };
+      const p = map.get(v.auditor_id) ?? { id: v.auditor_id, name: v.auditor_name, team: v.team ?? '', approved: [], pending: [], days: 0, hours: 0 };
       (v.status === 'approved' ? p.approved : p.pending).push(v);
       map.set(v.auditor_id, p);
     }
@@ -41,7 +41,7 @@ export default function Billing() {
       p.days = new Set(p.approved.map((v) => v.audit_date)).size;
       p.hours = p.approved.reduce((a, v) => a + (hoursBetween(v.checkin_at, v.checkout_at) ?? 0), 0);
     }
-    return [...map.values()].sort((a, b) => a.agency.localeCompare(b.agency) || a.name.localeCompare(b.name));
+    return [...map.values()].sort((a, b) => a.team.localeCompare(b.team) || a.name.localeCompare(b.name));
   }, [data.data]);
 
   const totalApproved = people.reduce((a, p) => a + p.approved.length, 0);
@@ -58,20 +58,20 @@ export default function Billing() {
     const s = wb.addWorksheet('Summary');
     s.columns = [28, 24, 18, 14, 14, 18].map((width) => ({ width }));
     s.addRow([`Auditor visits – ${monthLabel}`]).font = { bold: true, size: 13 };
-    s.addRow(['Billable = audits approved by the administrator. Awaiting review are not yet billable.']);
+    s.addRow(['Counted = audits approved by the administrator. Audits awaiting review are not counted yet.']);
     s.addRow([]);
-    head(s, ['Auditor', 'Agency', 'Billable visits', 'Days worked', 'Hours on site', 'Awaiting review']);
-    for (const p of people) s.addRow([p.name, p.agency, p.approved.length, p.days, Number(p.hours.toFixed(2)), p.pending.length]);
+    head(s, ['Auditor', 'Team', 'Approved visits', 'Days worked', 'Hours on site', 'Awaiting review']);
+    for (const p of people) s.addRow([p.name, p.team, p.approved.length, p.days, Number(p.hours.toFixed(2)), p.pending.length]);
     s.addRow(['Total', '', totalApproved, '', '', totalPending]).font = { bold: true };
 
     const d = wb.addWorksheet('Visit details');
     d.columns = [24, 20, 12, 18, 8, 12, 12, 12, 10, 14].map((width) => ({ width }));
-    head(d, ['Auditor', 'Agency', 'Date', 'Centre', 'State', 'Check-in', 'Check-out', 'Hours', 'Tractors', 'Status']);
+    head(d, ['Auditor', 'Team', 'Date', 'Centre', 'State', 'Check-in', 'Check-out', 'Hours', 'Tractors', 'Status']);
     for (const p of people)
       for (const v of [...p.approved, ...p.pending])
         d.addRow([
           p.name,
-          p.agency,
+          p.team,
           fmtDate(v.audit_date),
           v.centre_name,
           v.state,
@@ -79,16 +79,16 @@ export default function Billing() {
           fmtTime(v.checkout_at),
           Number((hoursBetween(v.checkin_at, v.checkout_at) ?? 0).toFixed(2)),
           v.tractor_count,
-          v.status === 'approved' ? 'Billable' : 'Awaiting review',
+          v.status === 'approved' ? 'Approved' : 'Awaiting review',
         ]);
-    saveBlob(new Blob([await wb.xlsx.writeBuffer()]), `Auditor_Billing_${month}.xlsx`);
+    saveBlob(new Blob([await wb.xlsx.writeBuffer()]), `Auditor_Visits_${month}.xlsx`);
   }
 
   return (
     <div>
       <PageTitle
-        title="Billing"
-        sub="Centre visits per auditor for the staffing agency's invoice. One approved centre audit = one billable visit."
+        title="Monthly visits"
+        sub="Approved centre visits per auditor for the month. One approved centre audit = one visit."
         actions={
           <>
             <input type="month" className={`${inputCls} w-auto`} value={month} max={todayIST().slice(0, 7)} onChange={(e) => setMonth(e.target.value)} aria-label="Month" />
@@ -104,14 +104,14 @@ export default function Billing() {
       ) : (
         <>
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3">
-            <Stat label={`Billable visits · ${monthLabel}`} value={totalApproved} tone="green" />
+            <Stat label={`Approved visits · ${monthLabel}`} value={totalApproved} tone="green" />
             <Stat label="Awaiting your review" value={totalPending} tone={totalPending ? 'amber' : undefined} />
             <Stat label="Auditors with visits" value={people.length} />
           </div>
           {totalPending > 0 && (
             <p className="mb-3 text-sm text-amber-700">
               {totalPending} visit(s) are submitted but not approved yet. <Link to="/visits?status=submitted" className="underline">Review them</Link> before
-              finalising the bill.
+              finalising the month.
             </p>
           )}
           {!people.length ? (
@@ -122,8 +122,8 @@ export default function Billing() {
                 <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500 uppercase">
                   <tr>
                     <th className="px-3 py-2">Auditor</th>
-                    <th className="px-3 py-2">Agency</th>
-                    <th className="px-3 py-2 text-right">Billable visits</th>
+                    <th className="px-3 py-2">Team</th>
+                    <th className="px-3 py-2 text-right">Approved visits</th>
                     <th className="px-3 py-2 text-right">Days worked</th>
                     <th className="px-3 py-2 text-right">Hours on site</th>
                     <th className="px-3 py-2 text-right">Awaiting review</th>
@@ -137,7 +137,7 @@ export default function Billing() {
                           <span className="mr-1 text-slate-400">{open === p.id ? '▾' : '▸'}</span>
                           {p.name}
                         </td>
-                        <td className="px-3 py-2 text-slate-600">{p.agency}</td>
+                        <td className="px-3 py-2 text-slate-600">{p.team}</td>
                         <td className="px-3 py-2 text-right font-semibold tabular-nums">{p.approved.length}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{p.days}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtHours(p.hours)}</td>

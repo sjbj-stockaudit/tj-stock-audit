@@ -86,3 +86,43 @@ export function cellText(value: unknown): string {
   }
   return String(value).trim();
 }
+
+/** True if the point is inside India (rough bounding box), to catch swapped or mistyped numbers. */
+export function inIndia(lat: number, lng: number): boolean {
+  return lat >= 6 && lat <= 37.5 && lng >= 68 && lng <= 97.5;
+}
+
+/**
+ * Read coordinates from what people paste: "23.8008, 79.4547", or a full Google Maps link
+ * (…/@23.80,79.45,17z…, …!3d23.80!4d79.45…, ?q=23.80,79.45, ?ll=…, destination=…).
+ * Short links (maps.app.goo.gl/…) carry no coordinates and must be expanded first.
+ */
+export function parseCoords(text: string): { lat: number; lng: number } | null {
+  if (!text) return null;
+  let t = String(text).trim();
+  try {
+    t = decodeURIComponent(t);
+  } catch {
+    /* keep as is */
+  }
+  const num = '(-?\\d{1,3}\\.\\d+)';
+  const patterns = [
+    new RegExp(`!3d${num}!4d${num}`), // exact pin position inside place links
+    new RegExp(`[?&](?:q|query|ll|destination|daddr|center)=${num}\\s*,\\s*${num}`),
+    new RegExp(`@${num},${num}`),
+    new RegExp(`^${num}\\s*[,\\s]\\s*${num}$`),
+    new RegExp(`${num}°?\\s*N?\\s*,\\s*${num}°?\\s*E?`),
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (m) {
+      const lat = parseFloat(m[1]);
+      const lng = parseFloat(m[2]);
+      if (inIndia(lat, lng)) return { lat, lng };
+      if (inIndia(lng, lat)) return { lat: lng, lng: lat }; // swapped
+    }
+  }
+  return null;
+}
+
+export const isShortMapsLink = (text: string) => /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i.test(String(text).trim());

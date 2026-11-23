@@ -7,10 +7,11 @@ import {
   hashPassword,
   randomToken,
   requireRole,
+  requireSignedIn,
   startSession,
   verifyPassword,
 } from './auth';
-import { centreKey, distanceMetres, idKey, type PhotoKind, type TractorStatus } from '../shared/domain';
+import { centreKey, distanceMetres, idKey, isShortMapsLink, parseCoords, type PhotoKind, type Role, type TractorStatus } from '../shared/domain';
 
 type C = Context<AppEnv>;
 type Visit = {
@@ -21,6 +22,7 @@ type Visit = {
   audit_date: string;
   auditor_signature_key: string | null;
   manager_signature_key: string | null;
+  checkin_selfie_key: string | null;
 };
 
 const app = new Hono<AppEnv>().basePath('/api');
@@ -74,7 +76,7 @@ app.post('/setup', async (c) => {
   )
     .bind(username, name, hash, salt)
     .run();
-  await startSession(c, res.meta.last_row_id as number);
+  await startSession(c, res.meta.last_row_id as number, 'admin');
   return c.json({ ok: true });
 });
 
@@ -82,11 +84,11 @@ app.post('/login', async (c) => {
   const body = await c.req.json<{ username: string; password: string }>();
   const u = await c.env.DB.prepare('SELECT * FROM users WHERE username = ? AND active = 1')
     .bind(String(body.username ?? '').trim().toLowerCase())
-    .first<{ id: number; password_hash: string; password_salt: string }>();
+    .first<{ id: number; password_hash: string; password_salt: string; role: Role }>();
   if (!u || !(await verifyPassword(String(body.password ?? ''), u.password_hash, u.password_salt)))
     return c.json({ error: 'Wrong username or password.' }, 401);
   await c.env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now()).run();
-  await startSession(c, u.id);
+  await startSession(c, u.id, u.role);
   return c.json({ ok: true });
 });
 
@@ -98,7 +100,47 @@ app.post('/logout', async (c) => {
 app.get('/me', async (c) => {
   const user = await currentUser(c);
   if (!user) return c.json({ error: 'Not signed in.' }, 401);
-  return c.json(user);
+  return c.json({
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    role: user.role,
+    selfie_required: user.role === 'auditor' && !user.selfie_done,
+  });
+});
+
+/** Auditor's live selfie right after signing in. Unlocks the session for the day. */
+app.post('/me/selfie', requireSignedIn, async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'auditor') return bad(c, 'Only auditors take a sign-in selfie.');
+  const img = await readImage(c);
+  if (img instanceof Response) return img;
+  const at = now();
+  const key = `selfies/${user.id}/${at.replace(/[:.]/g, '-')}-${randomToken(4)}.jpg`;
+  await c.env.PHOTOS.put(key, await img.file.arrayBuffer(), { httpMetadata: { contentType: img.file.type } });
+  await c.env.DB.batch([
+    c.env.DB.prepare('INSERT INTO login_selfies (user_id, r2_key, lat, lng, at) VALUES (?, ?, ?, ?, ?)').bind(
+      user.id,
+      key,
+      num(img.form.get('lat')),
+      num(img.form.get('lng')),
+      at,
+    ),
+    c.env.DB.prepare('UPDATE sessions SET selfie_key = ? WHERE token = ?').bind(key, user.token),
+  ]);
+  return c.json({ ok: true });
+});
+
+app.get('/users/:id/selfies', requireRole('admin'), async (c) => {
+  const { results } = await c.env.DB.prepare('SELECT id, lat, lng, at FROM login_selfies WHERE user_id = ? ORDER BY at DESC LIMIT 60')
+    .bind(Number(c.req.param('id')))
+    .all();
+  return c.json(results);
+});
+
+app.get('/selfies/:id', requireRole('admin'), async (c) => {
+  const r = await c.env.DB.prepare('SELECT r2_key FROM login_selfies WHERE id = ?').bind(Number(c.req.param('id'))).first<{ r2_key: string }>();
+  return serveObject(c, r?.r2_key ?? null);
 });
 
 app.post('/me/password', requireRole(), async (c) => {
@@ -142,7 +184,7 @@ app.put('/settings', requireRole('admin'), async (c) => {
 
 app.get('/users', requireRole('admin'), async (c) => {
   const { results } = await c.env.DB.prepare(
-    'SELECT id, username, name, phone, role, agency, active, created_at FROM users ORDER BY role, name',
+    'SELECT id, username, name, phone, role, team, active, created_at FROM users ORDER BY role, name',
   ).all();
   return c.json(results);
 });
@@ -158,9 +200,9 @@ app.post('/users', requireRole('admin'), async (c) => {
   if (exists) return bad(c, `The username "${username}" is already taken.`, 409);
   const { hash, salt } = await hashPassword(b.password);
   const res = await c.env.DB.prepare(
-    'INSERT INTO users (username, name, phone, role, agency, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO users (username, name, phone, role, team, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?, ?)',
   )
-    .bind(username, name, str(b.phone, 20), role, str(b.agency, 100), hash, salt)
+    .bind(username, name, str(b.phone, 20), role, str(b.team, 100), hash, salt)
     .run();
   return c.json({ id: res.meta.last_row_id });
 });
@@ -170,7 +212,7 @@ app.patch('/users/:id', requireRole('admin'), async (c) => {
   const b = await c.req.json<Record<string, unknown>>();
   const sets: string[] = [];
   const vals: unknown[] = [];
-  for (const k of ['name', 'phone', 'agency'] as const)
+  for (const k of ['name', 'phone', 'team'] as const)
     if (k in b) {
       sets.push(`${k} = ?`);
       vals.push(str(b[k], 100));
@@ -236,8 +278,81 @@ app.patch('/centres/:id', requireRole('admin'), async (c) => {
   if ('lng' in b) (sets.push('lng = ?'), vals.push(num(b.lng)));
   if ('radius_m' in b) (sets.push('radius_m = ?'), vals.push(num(b.radius_m) ?? 300));
   if ('active' in b) (sets.push('active = ?'), vals.push(b.active ? 1 : 0));
+  for (const k of ['manager_name', 'manager_phone', 'opening_hours', 'weekly_off'] as const)
+    if (k in b) (sets.push(`${k} = ?`), vals.push(str(b[k], 200)));
   if (sets.length) await c.env.DB.prepare(`UPDATE centres SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, id).run();
   return c.json({ ok: true });
+});
+
+/** Expand a short Google Maps link (maps.app.goo.gl/…) by following its redirects, then read the coordinates. */
+async function coordsFromText(text: string): Promise<{ lat: number; lng: number } | null> {
+  const direct = parseCoords(text);
+  if (direct || !isShortMapsLink(text)) return direct;
+  let url = text.trim();
+  for (let i = 0; i < 6; i++) {
+    const res = await fetch(url, { redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0' } }).catch(() => null);
+    const next = res?.headers.get('location');
+    if (!next) break;
+    url = new URL(next, url).toString();
+    const found = parseCoords(url);
+    if (found) return found;
+  }
+  return null;
+}
+
+type ImportRow = {
+  centre_id: number | null;
+  state: string;
+  name: string;
+  address?: string;
+  maps?: string;
+  manager_name?: string;
+  manager_phone?: string;
+  opening_hours?: string;
+  weekly_off?: string;
+};
+
+/** Bulk update (or add) centres from the filled-in centre details template. */
+app.post('/centres/import', requireRole('admin'), async (c) => {
+  const { rows } = await c.req.json<{ rows: ImportRow[] }>();
+  if (!Array.isArray(rows) || !rows.length) return bad(c, 'No rows to import.');
+  const results: { name: string; ok: boolean; action: string; location: string }[] = [];
+  for (const r of rows.slice(0, 500)) {
+    const name = str(r.name, 100);
+    const state = str(r.state, 10)?.toUpperCase();
+    if (!name || !state) continue;
+    const coords = r.maps ? await coordsFromText(r.maps) : null;
+    const location = coords ? 'saved' : r.maps ? 'could not read the link' : 'not given';
+    const fields: Record<string, unknown> = {
+      address: str(r.address),
+      manager_name: str(r.manager_name, 100),
+      manager_phone: str(r.manager_phone, 30),
+      opening_hours: str(r.opening_hours, 100),
+      weekly_off: str(r.weekly_off, 50),
+      ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
+    };
+    // Empty cells never wipe out what is already saved.
+    const set = Object.entries(fields).filter(([, v]) => v !== null && v !== undefined);
+    if (r.centre_id) {
+      if (set.length)
+        await c.env.DB.prepare(`UPDATE centres SET ${set.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`)
+          .bind(...set.map(([, v]) => v), r.centre_id)
+          .run();
+      results.push({ name, ok: true, action: 'updated', location });
+    } else {
+      const dup = await c.env.DB.prepare('SELECT id FROM centres WHERE state = ? AND lower(name) = lower(?)').bind(state, name).first();
+      if (dup) {
+        results.push({ name, ok: false, action: 'already exists', location });
+        continue;
+      }
+      const cols = ['state', 'name', ...set.map(([k]) => k)];
+      await c.env.DB.prepare(`INSERT INTO centres (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+        .bind(state, name, ...set.map(([, v]) => v))
+        .run();
+      results.push({ name, ok: true, action: 'added', location });
+    }
+  }
+  return c.json({ results });
 });
 
 app.post('/centres/:id/aliases', requireRole('admin'), async (c) => {
@@ -348,6 +463,7 @@ app.get('/visits/:id', requireRole(), async (c) => {
   const [visit, tractors, accessories, photos, pings] = await db.batch([
     db.prepare(
       `SELECT v.*, ce.name AS centre_name, ce.state, ce.address, ce.lat, ce.lng, ce.radius_m,
+              ce.manager_name AS centre_manager, ce.manager_phone AS centre_manager_phone, ce.opening_hours, ce.weekly_off,
               u.name AS auditor_name, u.phone AS auditor_phone, r.name AS reviewer_name
        FROM visits v JOIN centres ce ON ce.id = v.centre_id
        LEFT JOIN users u ON u.id = v.auditor_id LEFT JOIN users r ON r.id = v.reviewed_by WHERE v.id = ?`,
@@ -364,7 +480,15 @@ app.get('/visits/:id', requireRole(), async (c) => {
       delete row[k];
   }
   return c.json({
-    visit: { ...row, has_auditor_signature: !!v.auditor_signature_key, has_manager_signature: !!v.manager_signature_key },
+    visit: {
+      ...row,
+      auditor_signature_key: undefined,
+      manager_signature_key: undefined,
+      checkin_selfie_key: undefined,
+      has_auditor_signature: !!v.auditor_signature_key,
+      has_manager_signature: !!v.manager_signature_key,
+      has_checkin_selfie: !!v.checkin_selfie_key,
+    },
     tractors: tractors.results,
     accessories: accessories.results,
     photos: photos.results,
@@ -385,13 +509,13 @@ app.patch('/visits/:id', requireRole('admin'), async (c) => {
 
 app.delete('/visits/:id', requireRole('admin'), async (c) => {
   const id = Number(c.req.param('id'));
-  const v = await c.env.DB.prepare('SELECT status, auditor_signature_key, manager_signature_key FROM visits WHERE id = ?')
+  const v = await c.env.DB.prepare('SELECT status, auditor_signature_key, manager_signature_key, checkin_selfie_key FROM visits WHERE id = ?')
     .bind(id)
     .first<Visit>();
   if (!v) return bad(c, 'Visit not found.', 404);
   if (v.status === 'approved') return bad(c, 'Approved audits cannot be deleted.', 409);
   const { results } = await c.env.DB.prepare('SELECT r2_key FROM photos WHERE visit_id = ?').bind(id).all<{ r2_key: string }>();
-  const keys = [...results.map((r) => r.r2_key), v.auditor_signature_key, v.manager_signature_key].filter(Boolean) as string[];
+  const keys = [...results.map((r) => r.r2_key), v.auditor_signature_key, v.manager_signature_key, v.checkin_selfie_key].filter(Boolean) as string[];
   for (let i = 0; i < keys.length; i += 1000) await c.env.PHOTOS.delete(keys.slice(i, i + 1000));
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM location_pings WHERE visit_id = ?').bind(id),
@@ -409,7 +533,11 @@ app.post('/visits/:id/checkin', requireRole('auditor'), async (c) => {
   if (!v || v.auditor_id !== user.id) return bad(c, 'This visit is not assigned to you.', 403);
   if (v.status === 'in_progress') return c.json({ ok: true });
   if (v.status !== 'assigned' && v.status !== 'returned') return bad(c, 'This audit has already been submitted.', 409);
-  const b = await c.req.json<{ lat: number; lng: number; accuracy?: number }>();
+  // Check-in sends a live selfie plus GPS as a form; the selfie is required the first time.
+  const form = await c.req.formData();
+  const selfie = imageFrom(form);
+  if (typeof selfie === 'string' && !v.checkin_selfie_key) return bad(c, 'Take a selfie at the centre to check in.');
+  const b = { lat: form.get('lat'), lng: form.get('lng'), accuracy: form.get('accuracy') };
   const lat = num(b.lat);
   const lng = num(b.lng);
   if (lat === null || lng === null) return bad(c, 'Turn on location (GPS) to check in.');
@@ -424,6 +552,11 @@ app.post('/visits/:id/checkin', requireRole('auditor'), async (c) => {
   // First visit to a centre with no saved location: remember where the auditor checked in.
   else stmts.push(c.env.DB.prepare('UPDATE centres SET lat = ?, lng = ? WHERE id = ?').bind(lat, lng, v.centre_id));
   const at = now();
+  if (typeof selfie !== 'string' && !v.checkin_selfie_key) {
+    const key = `visits/${v.id}/checkin-selfie-${randomToken(6)}.jpg`;
+    await c.env.PHOTOS.put(key, await selfie.arrayBuffer(), { httpMetadata: { contentType: selfie.type } });
+    stmts.push(c.env.DB.prepare('UPDATE visits SET checkin_selfie_key = ? WHERE id = ?').bind(key, v.id));
+  }
   // A returned audit keeps its original check-in so the visit's start time is preserved.
   stmts.push(
     c.env.DB.prepare(
@@ -579,13 +712,19 @@ async function deletePhotos(c: C, where: string, id: number) {
   await c.env.DB.prepare(`DELETE FROM photos WHERE ${where}`).bind(id).run();
 }
 
+/** Validate an uploaded image from a form; returns an error message or the file. */
+function imageFrom(form: FormData): File | string {
+  const file = form.get('file') as unknown as File | string | null;
+  if (!file || typeof file === 'string') return 'No photo received.';
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return 'Only JPEG, PNG or WebP photos are accepted.';
+  if (file.size > MAX_PHOTO_BYTES) return 'The photo is too large (max 3 MB).';
+  return file;
+}
+
 async function readImage(c: C): Promise<{ form: FormData; file: File } | Response> {
   const form = await c.req.formData();
-  const file = form.get('file') as unknown as File | string | null;
-  if (!file || typeof file === 'string') return bad(c, 'No photo received.');
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return bad(c, 'Only JPEG, PNG or WebP photos are accepted.');
-  if (file.size > MAX_PHOTO_BYTES) return bad(c, 'The photo is too large (max 3 MB).');
-  return { form, file };
+  const file = imageFrom(form);
+  return typeof file === 'string' ? bad(c, file) : { form, file };
 }
 
 app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
@@ -685,6 +824,12 @@ app.get('/visits/:id/signature/:who', requireRole(), async (c) => {
   return serveObject(c, c.req.param('who') === 'manager' ? v.manager_signature_key : v.auditor_signature_key);
 });
 
+app.get('/visits/:id/checkin-selfie', requireRole(), async (c) => {
+  const v = await visitFor(c, Number(c.req.param('id')), 'read');
+  if (v instanceof Response) return v;
+  return serveObject(c, v.checkin_selfie_key);
+});
+
 // ---------------------------------------------------------------- submit & review
 
 /** Everything the client's deliverables need, checked before an audit can be submitted. */
@@ -706,6 +851,13 @@ async function submissionProblems(c: C, visitId: number, v: Visit): Promise<stri
   );
   if (noPhoto.length)
     problems.push(`Chassis photo missing for: ${noPhoto.slice(0, 5).map((t) => t.reg_no || t.chassis_no).join(', ')}${noPhoto.length > 5 ? '…' : ''}`);
+  const noTractorPhoto = (tractors as T[]).filter(
+    (t) => t.status !== 'pending' && t.status !== 'not_found' && !ph.some((p) => p.tractor_id === t.id && p.kind === 'tractor'),
+  );
+  if (noTractorPhoto.length)
+    problems.push(
+      `Tractor photo missing for: ${noTractorPhoto.slice(0, 5).map((t) => t.reg_no || t.chassis_no).join(', ')}${noTractorPhoto.length > 5 ? '…' : ''}`,
+    );
   const accNoPhoto = (accessories as { id: number; name: string }[]).filter((a) => !ph.some((p) => p.accessory_id === a.id));
   if (accNoPhoto.length) problems.push(`Photo missing for accessories: ${accNoPhoto.map((a) => a.name).join(', ')}`);
   if (!v.auditor_signature_key) problems.push('Auditor signature is missing.');
@@ -805,7 +957,7 @@ app.get('/billing', requireRole('admin'), async (c) => {
   if (!/^\d{4}-\d{2}$/.test(month)) return bad(c, 'Choose a month.');
   const { results } = await c.env.DB.prepare(
     `SELECT v.id AS visit_id, v.audit_date, v.checkin_at, v.checkout_at, v.status, v.checkin_distance_m,
-            ce.name AS centre_name, ce.state, u.id AS auditor_id, u.name AS auditor_name, u.username, u.agency, u.phone,
+            ce.name AS centre_name, ce.state, u.id AS auditor_id, u.name AS auditor_name, u.username, u.team, u.phone,
             (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = v.id) AS tractor_count
      FROM visits v JOIN centres ce ON ce.id = v.centre_id JOIN users u ON u.id = v.auditor_id
      WHERE substr(v.audit_date, 1, 7) = ? AND v.status IN ('approved', 'submitted')

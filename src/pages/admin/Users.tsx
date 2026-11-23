@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { api } from '../../lib/api';
 import type { User } from '../../lib/types';
 import type { Role } from '../../../shared/domain';
-import { Button, Card, ErrorBox, Field, Loading, Modal, PageTitle, inputCls, useLoad } from '../../components/ui';
+import { Button, Card, Empty, ErrorBox, Field, Loading, Modal, PageTitle, inputCls, useLoad } from '../../components/ui';
+import { fmtDateTime } from '../../lib/format';
 
 const ROLE_LABEL: Record<Role, string> = { admin: 'Administrators', auditor: 'Auditors', client: 'Client logins (Tractor Junction)' };
 const ROLE_HINT: Record<Role, string> = {
@@ -14,6 +15,7 @@ const ROLE_HINT: Record<Role, string> = {
 export default function Users() {
   const users = useLoad(() => api.get<User[]>('/users'));
   const [edit, setEdit] = useState<Partial<User> | null>(null);
+  const [selfies, setSelfies] = useState<User | null>(null);
 
   if (!users.data) return users.error ? <ErrorBox error={users.error} /> : <Loading />;
 
@@ -37,8 +39,13 @@ export default function Users() {
                       </td>
                       <td className="px-3 py-2 font-mono text-xs">{u.username}</td>
                       <td className="px-3 py-2">{u.phone}</td>
-                      <td className="px-3 py-2 text-xs text-slate-500">{u.agency}</td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="px-3 py-2 text-xs text-slate-500">{u.team}</td>
+                      <td className="space-x-2 px-3 py-2 text-right whitespace-nowrap">
+                        {u.role === 'auditor' && (
+                          <Button size="sm" variant="ghost" onClick={() => setSelfies(u)}>
+                            Sign-in selfies
+                          </Button>
+                        )}
                         <Button size="sm" variant="secondary" onClick={() => setEdit(u)}>
                           Edit
                         </Button>
@@ -57,6 +64,7 @@ export default function Users() {
         );
       })}
       {edit && <UserEditor user={edit} onClose={() => setEdit(null)} onSaved={users.reload} />}
+      {selfies && <SelfieLog user={selfies} onClose={() => setSelfies(null)} />}
     </div>
   );
 }
@@ -67,7 +75,7 @@ function UserEditor({ user, onClose, onSaved }: { user: Partial<User>; onClose: 
     name: user.name ?? '',
     username: user.username ?? '',
     phone: user.phone ?? '',
-    agency: user.agency ?? '',
+    team: user.team ?? '',
     role: user.role ?? 'auditor',
     active: user.active ?? 1,
     password: '',
@@ -116,8 +124,8 @@ function UserEditor({ user, onClose, onSaved }: { user: Partial<User>; onClose: 
           </Field>
         </div>
         {f.role === 'auditor' && (
-          <Field label="Staffing agency" hint="Used to group the monthly billing report">
-            <input className={inputCls} value={f.agency} onChange={(e) => setF({ ...f, agency: e.target.value })} />
+          <Field label="Team (optional)" hint="Groups auditors in the monthly visits summary, e.g. a region">
+            <input className={inputCls} value={f.team} onChange={(e) => setF({ ...f, team: e.target.value })} />
           </Field>
         )}
         <Field label={isNew ? 'Password' : 'Reset password'} hint={isNew ? 'At least 8 characters. Share it with the person.' : 'Leave empty to keep the current password.'}>
@@ -134,6 +142,29 @@ function UserEditor({ user, onClose, onSaved }: { user: Partial<User>; onClose: 
           Save
         </Button>
       </div>
+    </Modal>
+  );
+}
+
+/** Every live selfie the auditor took when signing in (latest first). */
+function SelfieLog({ user, onClose }: { user: User; onClose: () => void }) {
+  const list = useLoad(() => api.get<{ id: number; lat: number | null; lng: number | null; at: string }[]>(`/users/${user.id}/selfies`), [user.id]);
+  return (
+    <Modal open onClose={onClose} title={`Sign-in selfies – ${user.name}`} wide>
+      {!list.data ? (
+        <Loading />
+      ) : !list.data.length ? (
+        <Empty>No sign-ins yet.</Empty>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {list.data.map((s) => (
+            <a key={s.id} href={`/api/selfies/${s.id}`} target="_blank" rel="noreferrer" className="block text-xs text-slate-600">
+              <img src={`/api/selfies/${s.id}`} alt={`Selfie ${fmtDateTime(s.at)}`} loading="lazy" className="aspect-[3/4] w-full rounded-lg object-cover ring-1 ring-slate-200" />
+              <div className="mt-1">{fmtDateTime(s.at)}</div>
+            </a>
+          ))}
+        </div>
+      )}
     </Modal>
   );
 }

@@ -6,6 +6,9 @@ import { getPosition, tracker } from '../../lib/geo';
 import type { Accessory, Photo, Tractor, VisitDetail } from '../../lib/types';
 import { compareChassis, distanceMetres, idKey, type TractorStatus } from '../../../shared/domain';
 import PhotoButton from '../../components/PhotoButton';
+import SelfieCamera from '../../components/SelfieCamera';
+import type { StampedPhoto } from '../../lib/camera';
+import { useAuth } from '../../App';
 import SignaturePad from '../../components/SignaturePad';
 import { Button, Card, ErrorBox, Field, Loading, Modal, TractorBadge, VisitBadge, cx, inputCls, useLoad } from '../../components/ui';
 
@@ -115,15 +118,20 @@ export default function Audit() {
 
 function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
   const v = d.visit;
+  const { me } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [far, setFar] = useState<{ lat: number; lng: number; accuracy: number; dist: number } | null>(null);
+  const [selfie, setSelfie] = useState<StampedPhoto | null>(null);
+  // A returned audit already has its check-in selfie; a new one is needed only the first time.
+  const needsSelfie = !v.has_checkin_selfie;
 
-  async function checkIn(force = false) {
+  async function checkIn(force = false, photo = selfie) {
+    if (needsSelfie && !photo) return setError('Take a selfie at the centre to check in.');
     setBusy(true);
     setError(null);
     try {
-      const fix = far && force ? far : await getPosition();
+      const fix = far && force ? far : photo?.fix ?? (await getPosition());
       if (!force && v.lat != null && v.lng != null) {
         const dist = distanceMetres(fix.lat, fix.lng, v.lat, v.lng);
         if (dist > v.radius_m) {
@@ -131,7 +139,12 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
           return;
         }
       }
-      await api.post(`/visits/${v.id}/checkin`, { lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy });
+      const form = new FormData();
+      if (photo) form.append('file', photo.blob, 'checkin-selfie.jpg');
+      form.append('lat', String(fix.lat));
+      form.append('lng', String(fix.lng));
+      form.append('accuracy', String(fix.accuracy));
+      await api.post(`/visits/${v.id}/checkin`, form);
       onDone();
     } catch (e) {
       setError((e as Error).message);
@@ -149,6 +162,26 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
       )}
       <Card className="p-4">
         <div className="text-sm text-slate-600">{v.address}</div>
+        {(v.centre_manager || v.opening_hours || v.weekly_off) && (
+          <div className="mt-2 space-y-0.5 text-sm">
+            {v.centre_manager && (
+              <div>
+                Manager: <strong>{v.centre_manager}</strong>{' '}
+                {v.centre_manager_phone && (
+                  <a href={`tel:${v.centre_manager_phone}`} className="text-brand-700 underline">
+                    {v.centre_manager_phone}
+                  </a>
+                )}
+              </div>
+            )}
+            {(v.opening_hours || v.weekly_off) && (
+              <div className="text-slate-600">
+                {v.opening_hours}
+                {v.weekly_off && ` · Closed ${v.weekly_off}`}
+              </div>
+            )}
+          </div>
+        )}
         <a
           href={mapsLink(v.lat, v.lng, v.address, v.centre_name)}
           target="_blank"
@@ -161,6 +194,7 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
       <Card className="p-4">
         <h2 className="font-semibold">{v.status === 'returned' ? 'Continue the audit' : 'Reached the centre?'}</h2>
         <p className="mt-1 text-sm text-slate-600">
+          {needsSelfie ? 'Take a selfie at the centre (with the showroom behind you if possible). ' : ''}
           Checking in records your location and time. Your location is recorded until you submit the audit.
         </p>
         <div className="mt-4 space-y-3">
@@ -180,6 +214,17 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
                 </Button>
               </div>
             </div>
+          ) : needsSelfie ? (
+            <SelfieCamera
+              title={`Check-in · ${me.name}`}
+              place={`${v.centre_name}, ${v.state}`}
+              confirmLabel="Check in"
+              busy={busy}
+              onConfirm={(photo) => {
+                setSelfie(photo);
+                void checkIn(false, photo);
+              }}
+            />
           ) : (
             <Button size="lg" onClick={() => checkIn()} busy={busy}>
               {v.status === 'returned' ? 'Check in and fix' : 'Check in'}
@@ -238,7 +283,9 @@ function TractorList({ d, list, place, setD }: { d: VisitDetail; list: Tractor[]
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <TractorBadge status={t.status} />
-                {t.status !== 'pending' && t.status !== 'not_found' && !n && <span className="text-xs text-amber-600">photo missing</span>}
+                {t.status !== 'pending' && t.status !== 'not_found' && (!n || !photosOf(d, t).some((p) => p.kind === 'tractor')) && (
+                  <span className="text-xs text-amber-600">photo missing</span>
+                )}
               </div>
             </button>
           );
@@ -291,6 +338,7 @@ function TractorSheet({
   async function save(status: TractorStatus) {
     setError(null);
     if (status !== 'not_found' && !chassisPhotos.length) return setError('Take a photo of the chassis number first.');
+    if (status !== 'not_found' && !photos.some((p) => p.kind === 'tractor')) return setError('Take a photo of the whole tractor.');
     if (status !== 'not_found' && !idKey(chassis)) return setError('Type the chassis number you see on the tractor.');
     if (status === 'mismatch' && !remarks.trim()) return setError('Add a remark explaining the mismatch.');
     setBusy(true);
@@ -335,7 +383,7 @@ function TractorSheet({
             onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'chassis'), ps))}
           />
         </Field>
-        <Field group label="2. Photo of the tractor (optional)">
+        <Field group label="2. Photo of the whole tractor *">
           <PhotoButton
             visitId={d.visit.id}
             kind="tractor"
@@ -344,6 +392,7 @@ function TractorSheet({
             place={place}
             tractorId={t.id}
             photos={photos.filter((p) => p.kind === 'tractor')}
+            required
             onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'tractor'), ps))}
           />
         </Field>
@@ -446,6 +495,7 @@ function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD 
             stampTitle={`EXTRA ${t.reg_no ?? ''} · Tractor`}
             place={place}
             tractorId={t.id}
+            required
             photos={photosOf(d, t).filter((p) => p.kind === 'tractor')}
             onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'tractor'), ps))}
           />
@@ -560,7 +610,7 @@ function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: 
 function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; onSubmitted: () => void; goTo: (t: Tab) => void }) {
   const v = d.visit;
   const navigate = useNavigate();
-  const [manager, setManager] = useState(v.manager_name ?? '');
+  const [manager, setManager] = useState(v.manager_name ?? v.centre_manager ?? '');
   const [remarks, setRemarks] = useState(v.general_remarks ?? '');
   const [sigBusy, setSigBusy] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -572,6 +622,8 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
     if (pending) p.push({ msg: `${pending} tractor(s) not checked yet`, tab: 'tractors' });
     const noPhoto = d.tractors.filter((t) => t.status !== 'pending' && t.status !== 'not_found' && !d.photos.some((x) => x.tractor_id === t.id && x.kind === 'chassis'));
     if (noPhoto.length) p.push({ msg: `${noPhoto.length} tractor(s) without chassis photo`, tab: noPhoto.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
+    const noTractor = d.tractors.filter((t) => t.status !== 'pending' && t.status !== 'not_found' && !d.photos.some((x) => x.tractor_id === t.id && x.kind === 'tractor'));
+    if (noTractor.length) p.push({ msg: `${noTractor.length} tractor(s) without tractor photo`, tab: noTractor.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
     const accNo = d.accessories.filter((a) => !d.photos.some((x) => x.accessory_id === a.id));
     if (accNo.length) p.push({ msg: `${accNo.length} accessory item(s) without photo`, tab: 'accessories' });
     return p;

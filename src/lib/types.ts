@@ -1,6 +1,6 @@
 import type { PhotoKind, Role, TractorStatus, VisitStatus } from '../../shared/domain';
 
-export type Me = { id: number; username: string; name: string; role: Role };
+export type Me = { id: number; username: string; name: string; role: Role; selfie_required?: boolean };
 
 export type User = {
   id: number;
@@ -8,7 +8,7 @@ export type User = {
   name: string;
   phone: string | null;
   role: Role;
-  agency: string | null;
+  team: string | null;
   active: number;
   created_at: string;
 };
@@ -23,6 +23,10 @@ export type Centre = {
   radius_m: number;
   active: number;
   last_audit: string | null;
+  manager_name: string | null;
+  manager_phone: string | null;
+  opening_hours: string | null;
+  weekly_off: string | null;
 };
 
 export type VisitRow = {
@@ -90,6 +94,11 @@ export type VisitDetail = {
     reviewer_name: string | null;
     has_auditor_signature: boolean;
     has_manager_signature: boolean;
+    has_checkin_selfie: boolean;
+    centre_manager: string | null;
+    centre_manager_phone: string | null;
+    opening_hours: string | null;
+    weekly_off: string | null;
   };
   tractors: Tractor[];
   accessories: Accessory[];

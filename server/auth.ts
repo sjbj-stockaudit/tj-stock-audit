@@ -3,7 +3,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Role } from '../shared/domain';
 
 export type Env = { DB: D1Database; PHOTOS: R2Bucket };
-export type SessionUser = { id: number; username: string; name: string; role: Role };
+export type SessionUser = { id: number; username: string; name: string; role: Role; token: string; selfie_done: number };
 export type AppEnv = { Bindings: Env; Variables: { user: SessionUser } };
 
 const COOKIE = 'tj_session';
@@ -38,9 +38,18 @@ export async function verifyPassword(password: string, hash: string, salt: strin
   return diff === 0;
 }
 
-export async function startSession(c: Context<AppEnv>, userId: number): Promise<void> {
+/** Auditors sign in (with a selfie) every day: their session ends at midnight India time. */
+function auditorExpiry(): Date {
+  const IST = 5.5 * 3600_000;
+  const nowIst = Date.now() + IST;
+  let end = Math.ceil(nowIst / 86400_000) * 86400_000 - IST; // next midnight IST, as UTC ms
+  if (end - Date.now() < 6 * 3600_000) end += 86400_000; // signing in late at night lasts until the next night
+  return new Date(end);
+}
+
+export async function startSession(c: Context<AppEnv>, userId: number, role: Role): Promise<void> {
   const token = randomToken();
-  const expires = new Date(Date.now() + SESSION_DAYS * 86400_000);
+  const expires = role === 'auditor' ? auditorExpiry() : new Date(Date.now() + SESSION_DAYS * 86400_000);
   await c.env.DB.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
     .bind(token, userId, expires.toISOString())
     .run();
@@ -58,19 +67,32 @@ export async function currentUser(c: Context<AppEnv>): Promise<SessionUser | nul
   const token = getCookie(c, COOKIE);
   if (!token) return null;
   return c.env.DB.prepare(
-    `SELECT u.id, u.username, u.name, u.role FROM sessions s JOIN users u ON u.id = s.user_id
+    `SELECT u.id, u.username, u.name, u.role, s.token, (s.selfie_key IS NOT NULL) AS selfie_done
+     FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`,
   )
     .bind(token, new Date().toISOString())
     .first<SessionUser>();
 }
 
-/** Require a signed-in user with one of the given roles. */
+/**
+ * Require a signed-in user with one of the given roles.
+ * Auditors must also have taken their sign-in selfie (except on routes that take it).
+ */
 export function requireRole(...roles: Role[]): MiddlewareHandler<AppEnv> {
+  return guard(roles, false);
+}
+
+/** Signed in, selfie not needed yet (used to upload the selfie itself). */
+export const requireSignedIn: MiddlewareHandler<AppEnv> = guard([], true);
+
+function guard(roles: Role[], allowPendingSelfie: boolean): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const user = await currentUser(c);
     if (!user) return c.json({ error: 'Please sign in again.' }, 401);
     if (roles.length && !roles.includes(user.role)) return c.json({ error: 'You do not have access to this.' }, 403);
+    if (user.role === 'auditor' && !user.selfie_done && !allowPendingSelfie)
+      return c.json({ error: 'Take your sign-in selfie first.', code: 'selfie_required' }, 403);
     c.set('user', user);
     await next();
   };

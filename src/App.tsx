@@ -18,6 +18,7 @@ const Billing = lazy(() => import('./pages/admin/Billing'));
 const Reports = lazy(() => import('./pages/Reports'));
 import AuditorHome from './pages/auditor/Home';
 import Audit from './pages/auditor/Audit';
+import SelfieGate from './pages/auditor/SelfieGate';
 
 type AuthCtx = { me: Me; refresh: () => Promise<void>; logout: () => Promise<void> };
 const Ctx = createContext<AuthCtx>(null!);
@@ -40,8 +41,13 @@ export default function App() {
   useEffect(() => {
     void refresh();
     const onOut = () => setMe(null);
+    const onSelfie = () => void refresh();
     window.addEventListener('tj:signed-out', onOut);
-    return () => window.removeEventListener('tj:signed-out', onOut);
+    window.addEventListener('tj:selfie-required', onSelfie);
+    return () => {
+      window.removeEventListener('tj:signed-out', onOut);
+      window.removeEventListener('tj:selfie-required', onSelfie);
+    };
   }, [refresh]);
 
   const logout = useCallback(async () => {
@@ -56,6 +62,8 @@ export default function App() {
         <Route path="*" element={setupNeeded ? <Setup onDone={refresh} /> : <Login onDone={refresh} />} />
       </Routes>
     );
+
+  if (me.role === 'auditor' && me.selfie_required) return <SelfieGate name={me.name} onDone={refresh} onSignOut={logout} />;
 
   return (
     <Ctx.Provider value={{ me, refresh, logout }}>
@@ -104,7 +112,7 @@ const ADMIN_NAV = [
   ['/visits', 'Audits'],
   ['/live', 'Live map'],
   ['/reports', 'Weekly reports'],
-  ['/billing', 'Billing'],
+  ['/billing', 'Monthly visits'],
   ['/centres', 'Centres'],
   ['/users', 'People'],
 ] as const;
