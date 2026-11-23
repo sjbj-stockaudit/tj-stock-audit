@@ -5,8 +5,8 @@ compatibility_date = "2025-10-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "tj-stock-audit"
-# Replace with the id printed by `npx wrangler d1 create tj-stock-audit` (see DEPLOY.md)
-database_id = "00000000-0000-0000-0000-000000000000"
+# Cloudflare D1 database (Asia-Pacific)
+database_id = "927082cc-154f-4575-a534-3854d5c5d871"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
