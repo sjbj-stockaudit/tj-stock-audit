@@ -16,7 +16,7 @@ Chassis Number Mismatch / Not Found / Extra), a PDF of photos captioned by regis
 individual photos named by registration number, and one consolidated Excel for the week.
 
 ## Stack (free tier)
-Cloudflare Pages (React + Vite UI, Hono API in Pages Functions), D1 (SQLite) database,
+Cloudflare Workers with static assets (React + Vite UI, Hono API), D1 (SQLite) database,
 R2 photo storage, Capacitor Android wrapper with background geolocation. Reports are generated
 in the browser (ExcelJS, jsPDF, JSZip) to stay within the free plan's server limits.
 
@@ -34,7 +34,7 @@ npm run preview          # builds and serves on http://localhost:8788
 | Path | What |
 |---|---|
 | `server/` | API (auth, centres, uploads, visits, photos, review, live, billing) |
-| `functions/api/[[route]].ts` | Cloudflare Pages entry for the API |
+| `server/worker.ts` | Cloudflare Worker entry |
 | `migrations/` | Database schema and the MP centre list |
 | `shared/domain.ts` | Matching rules shared by server and app (chassis comparison, names) |
 | `src/pages/auditor/` | Phone screens |

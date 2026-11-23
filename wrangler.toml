@@ -1,6 +1,14 @@
 name = "tj-stock-audit"
-pages_build_output_dir = "dist"
+main = "server/worker.ts"
 compatibility_date = "2025-10-01"
+
+# The built web app (dist/) is served as static files; any unknown path falls back to
+# index.html so the app's own pages work. Only /api/* runs the server code.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
 
 [[d1_databases]]
 binding = "DB"

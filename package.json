@@ -9,8 +9,8 @@
     "typecheck": "tsc -b",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "preview": "npm run build && wrangler pages dev dist --port 8788",
-    "deploy": "npm run build && wrangler pages deploy dist"
+    "preview": "npm run build && wrangler dev --port 8788",
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.25",
