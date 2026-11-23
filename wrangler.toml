@@ -1,0 +1,14 @@
+name = "tj-stock-audit"
+pages_build_output_dir = "dist"
+compatibility_date = "2025-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tj-stock-audit"
+# Replace with the id printed by `npx wrangler d1 create tj-stock-audit` (see DEPLOY.md)
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "tj-stock-audit-photos"

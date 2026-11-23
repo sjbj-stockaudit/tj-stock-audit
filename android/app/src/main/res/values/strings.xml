@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Stock Audit</string>
+    <string name="title_activity_main">Stock Audit</string>
+    <string name="package_name">com.sjbj.stockaudit</string>
+    <string name="custom_url_scheme">com.sjbj.stockaudit</string>
+</resources>

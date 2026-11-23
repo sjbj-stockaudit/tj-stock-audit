@@ -1,0 +1,37 @@
+name: Build Android app
+
+# Run from GitHub: Actions → "Build Android app" → Run workflow → enter your website address.
+# The APK appears under "Artifacts" at the bottom of the finished run.
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: 'Your deployed website address, e.g. https://tj-stock-audit.pages.dev'
+        required: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run build
+      - name: Point the app at the website
+        run: npx cap sync android
+        env:
+          APP_URL: ${{ inputs.app_url }}
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stock-audit-android
+          path: android/app/build/outputs/apk/debug/app-debug.apk

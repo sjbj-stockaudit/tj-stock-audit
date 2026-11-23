@@ -1,0 +1,134 @@
+import { api } from './api';
+
+export type Fix = { lat: number; lng: number; accuracy: number; at: string };
+
+/** One GPS reading. Rejects with a readable message if location is off or denied. */
+export function getPosition(timeoutMs = 20000): Promise<Fix> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('This phone does not support GPS location.'));
+    navigator.geolocation.getCurrentPosition(
+      (p) =>
+        resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: new Date(p.timestamp).toISOString() }),
+      (err) =>
+        reject(
+          new Error(
+            err.code === err.PERMISSION_DENIED
+              ? 'Location permission is blocked. Allow location for this app in your phone settings.'
+              : 'Could not get your location. Turn on GPS and step outside if you are indoors.',
+          ),
+        ),
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30000 },
+    );
+  });
+}
+
+// ------------------------------------------------------------------ tracking between check-in and check-out
+
+type NativeBgGeo = {
+  addWatcher(
+    options: Record<string, unknown>,
+    cb: (loc?: { latitude: number; longitude: number; accuracy: number; time: number | null }, err?: unknown) => void,
+  ): Promise<string>;
+  removeWatcher(o: { id: string }): Promise<void>;
+};
+
+function nativeBackgroundGeolocation(): NativeBgGeo | null {
+  const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean; Plugins?: Record<string, unknown> } }).Capacitor;
+  if (!cap?.isNativePlatform?.()) return null;
+  return (cap.Plugins?.BackgroundGeolocation as NativeBgGeo) ?? null;
+}
+
+const FLUSH_MS = 2 * 60_000; // send at most every 2 minutes
+const MIN_GAP_MS = 60_000; // keep at most one point a minute
+const BUFFER_KEY = 'tj_ping_buffer';
+
+class Tracker {
+  private visitId: number | null = null;
+  private stopFn: (() => void) | null = null;
+  private timer: number | null = null;
+  private lastKept = 0;
+
+  start(visitId: number) {
+    if (this.visitId === visitId) return;
+    this.stop();
+    this.visitId = visitId;
+    const native = nativeBackgroundGeolocation();
+    if (native) {
+      // Android app: keeps tracking with the screen off (shows a notification while active).
+      let id: string | null = null;
+      native
+        .addWatcher(
+          {
+            backgroundMessage: 'Recording your location until you check out.',
+            backgroundTitle: 'Stock audit in progress',
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 25,
+          },
+          (loc) => loc && this.add({ lat: loc.latitude, lng: loc.longitude, accuracy: loc.accuracy, at: new Date(loc.time ?? Date.now()).toISOString() }),
+        )
+        .then((w) => (id = w));
+      this.stopFn = () => id && native.removeWatcher({ id });
+    } else if (navigator.geolocation) {
+      // Browser: works while the app is open on screen.
+      const w = navigator.geolocation.watchPosition(
+        (p) => this.add({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: new Date(p.timestamp).toISOString() }),
+        () => undefined,
+        { enableHighAccuracy: true, maximumAge: 60000 },
+      );
+      this.stopFn = () => navigator.geolocation.clearWatch(w);
+    }
+    this.timer = window.setInterval(() => this.flush(), FLUSH_MS);
+  }
+
+  stop() {
+    this.stopFn?.();
+    this.stopFn = null;
+    if (this.timer) window.clearInterval(this.timer);
+    this.timer = null;
+    void this.flush();
+    this.visitId = null;
+  }
+
+  private add(fix: Fix) {
+    const t = Date.parse(fix.at);
+    if (t - this.lastKept < MIN_GAP_MS) return;
+    this.lastKept = t;
+    const buf = readBuffer();
+    buf.push({ ...fix, visitId: this.visitId! });
+    writeBuffer(buf.slice(-500));
+  }
+
+  async flush() {
+    const buf = readBuffer();
+    if (!buf.length) return;
+    const byVisit = new Map<number, Fix[]>();
+    for (const p of buf) byVisit.set(p.visitId, [...(byVisit.get(p.visitId) ?? []), p]);
+    for (const [visitId, points] of byVisit) {
+      try {
+        await api.post(`/visits/${visitId}/pings`, { points });
+        writeBuffer(readBuffer().filter((p) => p.visitId !== visitId || !points.some((q) => q.at === p.at)));
+      } catch {
+        // offline: keep the points and try again on the next flush
+      }
+    }
+  }
+}
+
+type Buffered = Fix & { visitId: number };
+function readBuffer(): Buffered[] {
+  try {
+    return JSON.parse(localStorage.getItem(BUFFER_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+function writeBuffer(b: Buffered[]) {
+  try {
+    localStorage.setItem(BUFFER_KEY, JSON.stringify(b));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export const tracker = new Tracker();
