@@ -1,13 +1,14 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { api, photoUrl } from '../lib/api';
-import { compressAndStamp } from '../lib/camera';
+import type { StampedPhoto } from '../lib/camera';
 import type { Photo } from '../lib/types';
 import type { PhotoKind } from '../../shared/domain';
-import { Spinner, cx } from './ui';
+import LiveCamera from './LiveCamera';
+import { cx } from './ui';
 
 /**
- * Opens the phone camera, stamps the photo with GPS + time, compresses it and uploads it.
- * Shows existing photos as thumbnails with a remove button.
+ * Opens the in-app camera (live only – no gallery), stamps the photo with GPS + time,
+ * compresses it and uploads it. Shows existing photos as thumbnails with a remove button.
  */
 export default function PhotoButton({
   visitId,
@@ -32,16 +33,14 @@ export default function PhotoButton({
   onChange: (photos: Photo[]) => void;
   required?: boolean;
 }) {
-  const input = useRef<HTMLInputElement>(null);
+  const [shooting, setShooting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function onFile(file: File | undefined) {
-    if (!file) return;
+  async function upload({ blob, fix, takenAt }: StampedPhoto) {
     setBusy(true);
     setError(null);
     try {
-      const { blob, fix, takenAt } = await compressAndStamp(file, stampTitle, place);
       const form = new FormData();
       form.append('file', blob, 'photo.jpg');
       form.append('kind', kind);
@@ -54,11 +53,11 @@ export default function PhotoButton({
       }
       const p = await api.post<Photo>(`/visits/${visitId}/photos`, form);
       onChange([...photos, p]);
+      setShooting(false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
-      if (input.current) input.current.value = '';
     }
   }
 
@@ -87,29 +86,37 @@ export default function PhotoButton({
             </button>
           </div>
         ))}
-        <button
-          type="button"
-          onClick={() => input.current?.click()}
-          disabled={busy}
-          className={cx(
-            'flex h-20 min-w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed px-2 text-xs font-medium',
-            required && !photos.length ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-300 text-slate-600',
-          )}
-        >
-          {busy ? (
-            <Spinner />
-          ) : (
-            <>
-              <svg viewBox="0 0 24 24" className="mb-1 h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
-                <circle cx="12" cy="13" r="3.5" />
-              </svg>
-              {photos.length ? 'Add another' : label}
-            </>
-          )}
-        </button>
+        {!shooting && (
+          <button
+            type="button"
+            onClick={() => setShooting(true)}
+            className={cx(
+              'flex h-20 min-w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed px-2 text-xs font-medium',
+              required && !photos.length ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-300 text-slate-600',
+            )}
+          >
+            <svg viewBox="0 0 24 24" className="mb-1 h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+              <circle cx="12" cy="13" r="3.5" />
+            </svg>
+            {photos.length ? 'Add another' : label}
+          </button>
+        )}
       </div>
-      <input ref={input} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
+      {shooting && (
+        <div className="mt-3">
+          <LiveCamera
+            facing="environment"
+            title={stampTitle}
+            place={place}
+            captureLabel="Take photo"
+            confirmLabel="Use photo"
+            busy={busy}
+            onConfirm={upload}
+            onCancel={() => setShooting(false)}
+          />
+        </div>
+      )}
       {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
     </div>
   );
