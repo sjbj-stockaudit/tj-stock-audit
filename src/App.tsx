@@ -4,6 +4,7 @@ import { api } from './lib/api';
 import type { Me } from './lib/types';
 import { Loading, cx } from './components/ui';
 import Login from './pages/Login';
+import Splash from './components/Splash';
 import Setup from './pages/Setup';
 import Account from './pages/Account';
 // Office pages pull in the Excel/PDF/map libraries, so they load only when opened.
@@ -57,7 +58,7 @@ export default function App() {
     setMe(null);
   }, []);
 
-  if (me === undefined) return <Loading />;
+  if (me === undefined) return <Splash />;
   return (
     <>
       {practice && <PracticeBanner />}
@@ -157,8 +158,19 @@ function OfficeShell() {
   return (
     <div className="min-h-screen lg:flex">
       <aside className={cx('bg-brand-900 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-56 lg:flex-col', open ? 'block' : 'hidden lg:flex')}>
-        <div className="hidden items-center gap-2 px-4 py-4 font-semibold lg:flex">
-          <img src="/icon.svg" alt="" className="h-7 w-7" /> Stock Audit
+        <div className="m-3 hidden rounded-xl bg-white p-3 text-center text-slate-600 lg:block">
+          {me.role === 'client' ? (
+            <>
+              <img src="/brand/tj-logo.svg" alt="Tractor Junction" className="mx-auto h-16" />
+              <div className="mt-2 text-[11px]">Stock verification by</div>
+              <img src="/brand/sjbj-logo.png" alt="SJBJ & Associates" className="mx-auto mt-1 w-36" />
+            </>
+          ) : (
+            <>
+              <img src="/brand/sjbj-logo.png" alt="SJBJ & Associates" className="mx-auto w-full" />
+              <div className="mt-2 text-xs font-semibold tracking-wide">Stock Audit</div>
+            </>
+          )}
         </div>
         <nav className="flex flex-col gap-0.5 p-2">
           {nav.map(([to, label]) => (

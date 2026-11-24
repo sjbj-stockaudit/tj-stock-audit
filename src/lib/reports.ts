@@ -55,22 +55,72 @@ function styleHeader(row: ExcelJS.Row) {
     c.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     c.border = thin;
   });
-  row.height = 32;
+  row.height = 46;
+}
+
+type Img = { bytes: Uint8Array; w: number; h: number; type: 'JPEG' | 'PNG' };
+/** Client's logo (top left) and the audit firm's logo (top right) on every report. */
+export type Logos = { client: Img | null; firm: Img | null };
+
+async function loadStatic(url: string): Promise<Img | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const bmp = await createImageBitmap(blob);
+    const img: Img = { bytes: new Uint8Array(await blob.arrayBuffer()), w: bmp.width, h: bmp.height, type: 'PNG' };
+    bmp.close();
+    return img;
+  } catch {
+    return null;
+  }
+}
+
+let logosCache: Promise<Logos> | null = null;
+export function loadLogos(): Promise<Logos> {
+  logosCache ??= Promise.all([loadStatic('/brand/tj-logo.png'), loadStatic('/brand/sjbj-logo.png')]).then(([client, firm]) => ({ client, firm }));
+  return logosCache;
+}
+
+const logoIds = new WeakMap<ExcelJS.Workbook, { client?: number; firm?: number }>();
+/** Reserve rows at the top of a sheet and place both logos: client left, firm right (col = 0-based column of the right edge). */
+function addLogoRows(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, logos: Logos | undefined, rightCol: number) {
+  for (let i = 0; i < 4; i++) ws.addRow([]).height = 19;
+  if (!logos) return;
+  let ids = logoIds.get(wb);
+  if (!ids) {
+    ids = {
+      client: logos.client ? wb.addImage({ buffer: logos.client.bytes as unknown as ExcelJS.Buffer, extension: 'png' }) : undefined,
+      firm: logos.firm ? wb.addImage({ buffer: logos.firm.bytes as unknown as ExcelJS.Buffer, extension: 'png' }) : undefined,
+    };
+    logoIds.set(wb, ids);
+  }
+  if (ids.client !== undefined && logos.client) {
+    const h = 88;
+    ws.addImage(ids.client, { tl: { col: 0.05, row: 0.1 }, ext: { width: (logos.client.w / logos.client.h) * h, height: h } });
+  }
+  if (ids.firm !== undefined && logos.firm) {
+    const w = 230;
+    ws.addImage(ids.firm, { tl: { col: rightCol, row: 1.2 }, ext: { width: w, height: (logos.firm.h / logos.firm.w) * w } });
+  }
 }
 
 /** One worksheet in the client's "Physical stock count and reconciliation" format. */
-function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, sheetName?: string) {
+function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos?: Logos, sheetName?: string) {
   const v = d.visit;
   const ws = wb.addWorksheet((sheetName ?? v.centre_name).slice(0, 31));
   ws.columns = [{ width: 24 }, { width: 22 }, { width: 24 }, { width: 28 }, { width: 40 }];
-  ws.addRow(['Physical stock count and reconciliation and Chassis number verification']).font = { bold: true, size: 13 };
-  ws.mergeCells(1, 1, 1, 5);
+  ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } };
+  addLogoRows(wb, ws, logos, 4.15);
+  const top = ws.addRow(['Physical stock count and reconciliation and Chassis number verification']);
+  top.font = { bold: true, size: 13 };
+  ws.mergeCells(top.number, 1, top.number, 5);
   ws.addRow(['Firm:', s.client_name]);
   ws.addRow(['Location:', `${v.centre_name}, ${v.state}`]);
   ws.addRow(['Date:', fmtDate(v.audit_date)]);
   ws.addRow(['Verified By:', s.firm_name]);
   ws.addRow(['Auditor:', v.auditor_name ?? '']);
-  for (let r = 2; r <= 6; r++) ws.getCell(r, 1).font = { bold: true };
+  for (let r = top.number + 1; r <= top.number + 5; r++) ws.getCell(r, 1).font = { bold: true };
   ws.addRow([]);
 
   styleHeader(
@@ -139,13 +189,11 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, sheet
 export async function centreWorkbook(d: VisitDetail, s: Settings): Promise<Blob> {
   const wb = new ExcelJS.Workbook();
   wb.creator = s.firm_name;
-  addCentreSheet(wb, d, s);
+  addCentreSheet(wb, d, s, await loadLogos());
   return new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
 // ------------------------------------------------------------------ PDF of photos
-
-type Img = { bytes: Uint8Array; w: number; h: number; type: 'JPEG' | 'PNG' };
 
 async function loadImg(path: string): Promise<Img | null> {
   try {
@@ -180,6 +228,7 @@ function photoPdf(
   s: Settings,
   imgs: Map<number, Img>,
   sigs: { auditor: Img | null; manager: Img | null; selfie: Img | null },
+  logos?: Logos,
 ): Blob {
   const v = d.visit;
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -187,8 +236,18 @@ function photoPdf(
   const M = 12;
   const sum = summarise(d);
 
-  // Cover page
-  pdf.setFont('helvetica', 'bold').setFontSize(15).text('Stock Verification – Photo Report', M, 20);
+  // Cover page: client logo top left, audit firm logo top right
+  if (logos?.client) {
+    const h = 20;
+    pdf.addImage(logos.client.bytes, 'PNG', M, 8, (logos.client.w / logos.client.h) * h, h);
+  }
+  if (logos?.firm) {
+    const w = 55;
+    pdf.addImage(logos.firm.bytes, 'PNG', W - M - w, 13, w, (logos.firm.h / logos.firm.w) * w);
+  }
+  pdf.setDrawColor(220).line(M, 30, W - M, 30);
+  const T = 19; // everything below the logo band moves down by this much
+  pdf.setFont('helvetica', 'bold').setFontSize(15).text('Stock Verification – Photo Report', M, 20 + T);
   pdf.setFont('helvetica', 'normal').setFontSize(10);
   const info = [
     ['Firm', s.client_name],
@@ -200,18 +259,18 @@ function photoPdf(
     ['Check-in / out', `${fmtDateTime(v.checkin_at)}  to  ${fmtDateTime(v.checkout_at)}`],
   ];
   info.forEach(([k, val], i) => {
-    pdf.setFont('helvetica', 'bold').text(`${k}:`, M, 32 + i * 6);
-    pdf.setFont('helvetica', 'normal').text(String(val), M + 32, 32 + i * 6, { maxWidth: 110 });
+    pdf.setFont('helvetica', 'bold').text(`${k}:`, M, 32 + T + i * 6);
+    pdf.setFont('helvetica', 'normal').text(String(val), M + 32, 32 + T + i * 6, { maxWidth: 110 });
   });
   // Auditor's live selfie at check-in, top right of the cover page
   if (sigs.selfie) {
     const r = Math.min(45 / sigs.selfie.w, 60 / sigs.selfie.h);
     const w = sigs.selfie.w * r;
-    pdf.addImage(sigs.selfie.bytes, sigs.selfie.type, W - M - w, 26, w, sigs.selfie.h * r);
-    pdf.setFontSize(7).setTextColor(100).text('Auditor selfie at check-in', W - M - w, 26 + sigs.selfie.h * r + 4);
+    pdf.addImage(sigs.selfie.bytes, sigs.selfie.type, W - M - w, 26 + T, w, sigs.selfie.h * r);
+    pdf.setFontSize(7).setTextColor(100).text('Auditor selfie at check-in', W - M - w, 26 + T + sigs.selfie.h * r + 4);
     pdf.setFontSize(10).setTextColor(0);
   }
-  let y = 32 + info.length * 6 + 6;
+  let y = 32 + T + info.length * 6 + 6;
   pdf.setFont('helvetica', 'bold').text('Summary', M, y);
   pdf.setFont('helvetica', 'normal');
   [
@@ -305,7 +364,7 @@ async function addCentreToZip(folder: JSZip, d: VisitDetail, s: Settings, onProg
   };
   const name = baseName(d);
   folder.file(`Stock_Verification_${name}.xlsx`, await centreWorkbook(d, s));
-  folder.file(`Photos_${name}.pdf`, photoPdf(d, s, imgs, sigs));
+  folder.file(`Photos_${name}.pdf`, photoPdf(d, s, imgs, sigs, await loadLogos()));
   // Individual photos, each named by the tractor's registration number
   const used = new Set<string>();
   const unique = (n: string) => {
@@ -359,6 +418,9 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
   wb.creator = s.firm_name;
   const summary = wb.addWorksheet('Summary');
   summary.columns = [12, 18, 14, 18, 12, 12, 12, 12, 12, 20].map((width) => ({ width }));
+  const logos = await loadLogos();
+  summary.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+  addLogoRows(wb, summary, logos, 7.2);
   summary.addRow([`Consolidated stock verification – ${label}`]).font = { bold: true, size: 13 };
   summary.addRow([`${s.client_name} · Verified by ${s.firm_name}`]);
   summary.addRow([]);
@@ -391,7 +453,7 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
     let sn = d.visit.centre_name.slice(0, 24);
     if (sheetNames.has(sn)) sn = `${sn.slice(0, 18)} ${d.visit.audit_date.slice(5)}`;
     sheetNames.add(sn);
-    addCentreSheet(wb, d, s, sn);
+    addCentreSheet(wb, d, s, logos, sn);
   }
   const zip = new JSZip();
   zip.file(`Consolidated_Stock_Verification_${safeName(label)}.xlsx`, await wb.xlsx.writeBuffer());

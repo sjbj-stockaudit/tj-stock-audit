@@ -4,12 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#14532d" />
+    <link rel="preload" as="image" href="/brand/sjbj-logo.png" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <title>Stock Audit</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#fff;font-family:system-ui,sans-serif">
+        <img src="/brand/sjbj-logo.png" alt="SJBJ & Associates" style="width:260px;max-width:70vw" />
+        <div style="color:#475569;font-size:14px;letter-spacing:.04em">Stock Audit</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

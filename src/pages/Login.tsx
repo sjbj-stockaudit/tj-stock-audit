@@ -6,12 +6,10 @@ export function AuthFrame({ title, children }: { title: string; children: React.
   return (
     <div className="flex min-h-screen items-center justify-center bg-brand-900 p-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-        <div className="mb-5 flex items-center gap-3">
-          <img src="/icon.svg" alt="" className="h-10 w-10" />
-          <div>
-            <div className="font-semibold">Stock Audit</div>
-            <div className="text-sm text-slate-500">{title}</div>
-          </div>
+        <div className="mb-5 border-b border-slate-100 pb-4 text-center">
+          <img src="/brand/sjbj-logo.png" alt="SJBJ & Associates, Chartered Accountants" className="mx-auto w-56 max-w-full" />
+          <div className="mt-3 font-semibold">Stock Audit</div>
+          <div className="text-sm text-slate-500">{title}</div>
         </div>
         {children}
       </div>

@@ -184,7 +184,7 @@ app.put('/settings', requireRole('admin'), async (c) => {
 
 app.get('/users', requireRole('admin'), async (c) => {
   const { results } = await c.env.DB.prepare(
-    'SELECT id, username, name, phone, role, team, active, created_at FROM users ORDER BY role, name',
+    'SELECT id, username, name, phone, role, team, home_area, id_proof, active, created_at FROM users ORDER BY role, name',
   ).all();
   return c.json(results);
 });
@@ -200,9 +200,9 @@ app.post('/users', requireRole('admin'), async (c) => {
   if (exists) return bad(c, `The username "${username}" is already taken.`, 409);
   const { hash, salt } = await hashPassword(b.password);
   const res = await c.env.DB.prepare(
-    'INSERT INTO users (username, name, phone, role, team, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO users (username, name, phone, role, team, home_area, id_proof, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
-    .bind(username, name, str(b.phone, 20), role, str(b.team, 100), hash, salt)
+    .bind(username, name, str(b.phone, 20), role, str(b.team, 100), str(b.home_area, 100), str(b.id_proof, 60), hash, salt)
     .run();
   return c.json({ id: res.meta.last_row_id });
 });
@@ -212,7 +212,7 @@ app.patch('/users/:id', requireRole('admin'), async (c) => {
   const b = await c.req.json<Record<string, unknown>>();
   const sets: string[] = [];
   const vals: unknown[] = [];
-  for (const k of ['name', 'phone', 'team'] as const)
+  for (const k of ['name', 'phone', 'team', 'home_area', 'id_proof'] as const)
     if (k in b) {
       sets.push(`${k} = ?`);
       vals.push(str(b[k], 100));

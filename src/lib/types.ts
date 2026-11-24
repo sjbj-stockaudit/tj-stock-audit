@@ -9,6 +9,8 @@ export type User = {
   phone: string | null;
   role: Role;
   team: string | null;
+  home_area: string | null;
+  id_proof: string | null;
   active: number;
   created_at: string;
 };
