@@ -20,6 +20,13 @@ Cloudflare Workers with static assets (React + Vite UI, Hono API), D1 (SQLite) d
 R2 photo storage, Capacitor Android wrapper with background geolocation. Reports are generated
 in the browser (ExcelJS, jsPDF, JSZip) to stay within the free plan's server limits.
 
+## User guides
+| For | Guide |
+|---|---|
+| Office administrators | [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md) · [PDF](docs/Stock_Audit_Admin_Guide.pdf) |
+| Auditors (Android & iPhone) | [docs/AUDITOR_GUIDE.md](docs/AUDITOR_GUIDE.md) · [PDF](docs/Stock_Audit_Auditor_Guide.pdf) |
+| Client – Tractor Junction (laptop, Android & iPhone) | [docs/CLIENT_GUIDE.md](docs/CLIENT_GUIDE.md) · [PDF](docs/Stock_Audit_Client_Guide_Tractor_Junction.pdf) |
+
 ## Going live
 See **[DEPLOY.md](DEPLOY.md)**.
 
