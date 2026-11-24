@@ -287,9 +287,13 @@ function photoPdf(
     pdf.setFont('helvetica', 'bold').text(title, M, y);
     pdf.setFont('helvetica', 'normal');
     for (const t of items) {
-      y += 5;
-      if (y > 280) (pdf.addPage(), (y = 20));
-      pdf.text(`• ${t.reg_no ?? ''}   Chassis ${t.chassis_no ?? ''}${t.remarks ? `   – ${t.remarks}` : ''}`, M + 4, y);
+      // Long remarks wrap onto following lines instead of running off the page
+      const lines: string[] = pdf.splitTextToSize(`• ${t.reg_no ?? ''}   Chassis ${t.chassis_no ?? ''}${t.remarks ? `   – ${t.remarks}` : ''}`, W - 2 * M - 8);
+      for (const [i, line] of lines.entries()) {
+        y += 5;
+        if (y > 280) (pdf.addPage(), (y = 20));
+        pdf.text(i ? `   ${line}` : line, M + 4, y);
+      }
     }
     y += 8;
   };
