@@ -27,7 +27,7 @@ Today's centres, audits completed, auditors on site now, and audits **waiting fo
 
 ## Audits
 Filter by date, status, centre or auditor. Click a centre to open the audit:
-- Counts, visit details, check-in **distance from the centre** (red if outside the allowed radius), the **storefront photo**, the **check-in selfie**, and a map with the GPS trail between check-in and check-out.
+- Counts, visit details, check-in **distance from the centre** (red if outside the allowed radius), the **storefront photo**, the **check-in selfie** (visible to your office only – never shown to the client or included in reports), and a map with the GPS trail between check-in and check-out.
 - Every tractor with photos, accessories, the **facility condition** checklist (rating, photos, remarks per area) and signatures.
 - **Approve** – the audit becomes visible to the client and counts in Monthly visits.
 - **Send back to auditor** – write what needs fixing; it returns to the auditor's phone.

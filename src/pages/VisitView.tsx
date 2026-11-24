@@ -179,7 +179,7 @@ export default function VisitView() {
                 ))}
               {v.has_checkin_selfie && (
                 <div>
-                  <div className="mb-1 text-slate-500">Auditor selfie at check-in</div>
+                  <div className="mb-1 text-slate-500">Auditor selfie at check-in (visible to your office only)</div>
                   <a href={`/api/visits/${v.id}/checkin-selfie`} target="_blank" rel="noreferrer">
                     <img src={`/api/visits/${v.id}/checkin-selfie`} alt="Auditor selfie at check-in" className="h-40 rounded-lg object-cover ring-1 ring-slate-200" />
                   </a>

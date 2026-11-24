@@ -500,7 +500,8 @@ app.get('/visits/:id', requireRole(), async (c) => {
       checkin_selfie_key: undefined,
       has_auditor_signature: !!v.auditor_signature_key,
       has_manager_signature: !!v.manager_signature_key,
-      has_checkin_selfie: !!v.checkin_selfie_key,
+      // The check-in selfie is an internal control: never shown to the client
+      has_checkin_selfie: c.get('user').role !== 'client' && !!v.checkin_selfie_key,
     },
     tractors: tractors.results,
     accessories: accessories.results,
@@ -907,7 +908,7 @@ app.get('/visits/:id/signature/:who', requireRole(), async (c) => {
   return serveObject(c, c.req.param('who') === 'manager' ? v.manager_signature_key : v.auditor_signature_key);
 });
 
-app.get('/visits/:id/checkin-selfie', requireRole(), async (c) => {
+app.get('/visits/:id/checkin-selfie', requireRole('admin', 'auditor'), async (c) => {
   const v = await visitFor(c, Number(c.req.param('id')), 'read');
   if (v instanceof Response) return v;
   return serveObject(c, v.checkin_selfie_key);

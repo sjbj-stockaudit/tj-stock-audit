@@ -263,12 +263,11 @@ function photoPdf(
   const T = 19; // everything below the logo band moves down by this much
   pdf.setFont('helvetica', 'bold').setFontSize(15).text('Stock Verification – Photo Report', M, 20 + T);
 
-  // Right column: storefront and auditor selfie as proof of the visit
+  // Right column: storefront photo as proof of the visit (the auditor selfie is internal and not included)
   const sideW = 44;
   const storefront = d.photos.find((p) => p.kind === 'storefront');
   const sideImgs: [Img | null | undefined, string][] = [
     [storefront ? imgs.get(storefront.id) : null, 'Storefront'],
-    [sigs.selfie, 'Auditor selfie at check-in'],
   ];
   let sideY = 26 + T;
   for (const [img, label] of sideImgs) {
@@ -424,7 +423,7 @@ async function addCentreToZip(folder: JSZip, d: VisitDetail, s: Settings, onProg
   const sigs = {
     auditor: d.visit.has_auditor_signature ? await loadImg(`/visits/${d.visit.id}/signature/auditor`) : null,
     manager: d.visit.has_manager_signature ? await loadImg(`/visits/${d.visit.id}/signature/manager`) : null,
-    selfie: d.visit.has_checkin_selfie ? await loadImg(`/visits/${d.visit.id}/checkin-selfie`) : null,
+    selfie: null, // the auditor's check-in selfie stays internal (admin review only), never in client reports
   };
   const name = baseName(d);
   folder.file(`Stock_Verification_${name}.xlsx`, await centreWorkbook(d, s));
