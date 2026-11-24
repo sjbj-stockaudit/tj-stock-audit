@@ -7,8 +7,8 @@ android {
         applicationId "com.sjbj.stockaudit"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode((System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger())  // rises with every build so updates install over the old app
+        versionName "1.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,24 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Permanent release key (supplied by the build workflow from GitHub secrets), so new
+    // versions install over the old app without uninstalling.
+    signingConfigs {
+        release {
+            def ks = System.getenv('ANDROID_KEYSTORE_PATH')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias 'stockaudit'
+                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (System.getenv('ANDROID_KEYSTORE_PATH')) signingConfig signingConfigs.release
         }
     }
 }

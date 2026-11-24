@@ -25,6 +25,7 @@ in the browser (ExcelJS, jsPDF, JSZip) to stay within the free plan's server lim
 |---|---|
 | Office administrators | [docs/ADMIN_GUIDE.md](docs/ADMIN_GUIDE.md) · [PDF](docs/Stock_Audit_Admin_Guide.pdf) |
 | Auditors (Android & iPhone) | [docs/AUDITOR_GUIDE.md](docs/AUDITOR_GUIDE.md) · [PDF](docs/Stock_Audit_Auditor_Guide.pdf) |
+| Planner (weekly schedule) | [docs/PLANNER_GUIDE.md](docs/PLANNER_GUIDE.md) · [PDF](docs/Stock_Audit_Planner_Guide.pdf) |
 | Client – Tractor Junction (laptop, Android & iPhone) | [docs/CLIENT_GUIDE.md](docs/CLIENT_GUIDE.md) · [PDF](docs/Stock_Audit_Client_Guide_Tractor_Junction.pdf) |
 
 ## Going live

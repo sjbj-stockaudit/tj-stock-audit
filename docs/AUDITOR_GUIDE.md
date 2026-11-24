@@ -16,8 +16,8 @@ This app is how you do every stock audit: check in at the centre, check each tra
 3. If **Play Protect** shows a warning, tap **More details → Install anyway**. (This appears because the app is not on the Play Store. It is safe.)
 4. Open **Stock Audit** from your home screen.
 5. When asked, allow:
-   - **Camera** – for selfies and tractor photos
-   - **Location** – choose **Allow all the time** (Settings → Apps → Stock Audit → Location). This keeps your location recording while the screen is off during an audit.
+   - **Camera** – for the check-in selfie and all photos
+   - **Location** – **Allow** (with precise location on)
    - **Notifications** – you will see "Stock audit in progress" while you are checked in.
 
 ### iPhone
@@ -29,11 +29,14 @@ This app is how you do every stock audit: check in at the centre, check each tra
 
 ---
 
-## 2. Sign in every day
-1. Enter your **username** and **password** → **Sign in**.
-2. Take your **sign-in selfie**: face the camera in good light → **Take selfie** → **Use this selfie**.
-   You are signed out automatically at midnight, so you do this once a day.
-3. Change your starting password the first time: tap **your name** at the top → enter the current and new password → **Change password**.
+## 2. Sign in
+1. Enter your **username** and **password** → **Sign in**. You stay signed in on your phone.
+2. Change your starting password the first time: tap **your name** at the top → enter the current and new password → **Change password**.
+
+### One-time phone setting (Android app)
+The first time you open an audit, a blue box asks you to keep location working with the screen off. Tap **Open app settings** → **Battery** → **Unrestricted / No restrictions**, and **Permissions → Location → Allow**. Then come back and tap **Done**. Phones like Xiaomi, Realme, Vivo and Oppo otherwise stop location recording to save battery.
+
+While an audit is open the screen stays on, so it does not lock by itself.
 
 ---
 
@@ -112,7 +115,12 @@ After submitting you cannot change the audit unless the office sends it back.
 
 ---
 
-## 10. If the office sends an audit back
+## 10. Centre closed or audit not possible
+If you reach the centre and the audit cannot be done (shutter down, manager not available, centre refuses, holiday): tap **Centre closed / can't audit?** (below the check-in box, or at the bottom of **Finish**) → choose the **reason**, add details → take a **photo of the storefront** → **Send report**. Your location is recorded as proof. The office reviews it.
+
+---
+
+## 11. If the office sends an audit back
 It appears under **Sent back for correction** with a note. Tap **Fix and resubmit →** → **Check in and fix** (no new selfie needed), make the corrections, then submit again from **Finish**.
 
 ---

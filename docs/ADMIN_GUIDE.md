@@ -8,7 +8,8 @@ Use a laptop for admin work. Menu items are on the left (on a phone: **Menu**).
 ---
 
 ## Weekly routine at a glance
-1. **Upload stock** – upload the client's stock statement and assign auditors.
+0. **Weekly plan** – the planner plans next week (date → centre → auditor); you check it, **Approve & lock week**, and send the plan Excel to the client.
+1. **Upload stock** – each day, upload the client's stock statement for that day's centres; auditors are filled in from the plan.
 2. **Live map / Dashboard** – watch check-ins and progress during the day.
 3. **Audits** – review each submitted audit: approve, or send back with a note.
 4. **Weekly reports** – download the combined report and send it to the client.
@@ -19,10 +20,15 @@ Use a laptop for admin work. Menu items are on the left (on a phone: **Menu**).
 ## Dashboard
 Today's centres, audits completed, auditors on site now, and audits **waiting for your review**.
 
+## Weekly plan
+- The **planner** login (People → Add person → Planner) plans each week: add centres to each day and choose the auditor. Warnings show centres planned twice, centres closed on that weekday, auditors with more than 2 centres a day and centres without an auditor.
+- The planner sees whether each planned visit is assigned / in progress / submitted / approved – but never photos, reports, people, tracking or monthly visits.
+- **Approve & lock week** when it is final (the planner can no longer change it; **Unlock week** if needed). **Download plan (Excel)** to send to the client.
+
 ## Upload stock
 1. Choose the client's Excel (one sheet per centre: Registration No, engineNumber, chassisNumber) and the **audit date**.
 2. Each sheet is matched to a centre. If a sheet name is unknown (e.g. "Badnagar"), choose **Same as existing centre: …** (tick **Remember this** so it is matched automatically next time) or **Add as a new centre**.
-3. Assign an auditor to each centre (or **Assign all to**). Data issues in a sheet (missing chassis, duplicates, odd registration numbers) are listed under it.
+3. Auditors are filled in from the weekly plan ("✓ from the weekly plan"); you can still change them. Centres planned for that date but missing from the file are listed at the top. Data issues in a sheet (missing chassis, duplicates, odd registration numbers) are listed under it.
 4. **Create N audits**. Auditors see them on their phones immediately.
 
 ## Audits
@@ -35,6 +41,8 @@ Filter by date, status, centre or auditor. Click a centre to open the audit:
 - **Excel** / **Download full report** for this centre.
 
 Statuses: Assigned → In progress → Awaiting review → Approved (or Returned to auditor).
+
+**Centre closed / not carried out:** if the auditor reports that the audit could not be done, the audit shows a red "Audit not carried out" banner with the reason, storefront photo and GPS. Approve it (it appears in reports as not carried out) or send it back so the audit is done. In Monthly visits these are counted in a separate **Centre closed** column, so you decide how to bill them.
 
 ## Live map
 Auditors currently checked in, their last location, distance from the centre and progress. Refreshes every minute. "No update in 30 min" means the phone stopped sending location (screen locked on iPhone, phone off, or no signal).
@@ -54,10 +62,9 @@ Pick the month. Shows approved visits, days worked and hours on site per auditor
 - **Auditors:** **Download auditor template** → collect details → **Import auditors**. Each person gets a username (first name + last 4 digits of mobile) and a starting password. **Save the login details immediately** (Excel download, or **Copy message** to send on WhatsApp) – starting passwords are shown only once.
 - **Add person** for a single auditor, a client login or another administrator.
 - **Edit** to reset a password or **untick Active** when someone leaves (they are signed out at once; their past audits stay).
-- **Sign-in selfies** shows every daily sign-in selfie of an auditor.
 
 ## Good to know
-- Auditors sign in with a selfie every day and take a selfie at each check-in. A storefront photo and a completed facility condition checklist (6 standard areas; photo for each unless N/A; remark for Poor or N/A) are required for every visit. The weekly summary shows how many areas were rated Poor per centre. Storefront, tractor, chassis and accessory photos can only be taken live in the app.
+- Auditors take a selfie at the centre at each check-in (your office only). A storefront photo and a completed facility condition checklist (6 standard areas; photo for each unless N/A; remark for Poor or N/A) are required for every visit. The weekly summary shows how many areas were rated Poor per centre. Storefront, tractor, chassis and accessory photos can only be taken live in the app.
 - Changes to the app reach everyone automatically; auditors get them the next time they open the app.
 - iPhone auditors: location is recorded only while the app is open on screen; GPS is still on check-in, every photo and check-out.
 - Photo storage: about 10 GB free (roughly two years). Archive old weekly reports before then.

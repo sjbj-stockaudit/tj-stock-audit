@@ -23,15 +23,16 @@ Open the site. The first screen creates the **administrator** account. Then in *
 each auditor (with their agency) and a login for Tractor Junction.
 
 ## The auditors' Android app
-1. GitHub → **Actions** → **Build Android app** → **Run workflow**, enter the site address.
-2. When it finishes, download **stock-audit-android** from the bottom of the run and unzip it to get `app-debug.apk`.
-3. Send the APK to auditors (WhatsApp / Drive). On the phone: open it → allow *Install unknown apps* once → Install.
-4. On first check-in, allow **Location → Allow all the time** and **Notifications**. While an audit is open
-   the phone shows "Stock audit in progress"; that is the location tracking, and it stops at check-out.
+1. GitHub → **Actions** → **Build Android app** → **Run workflow** (the website address is pre-filled).
+2. **First build only:** at the bottom of the finished run, download **SIGNING-KEY-save-to-github-secrets** and follow
+   the README inside: add `ANDROID_KEYSTORE_B64` and `ANDROID_KEYSTORE_PASSWORD` under Settings → Secrets and variables →
+   Actions. Keep a copy of both files safe. Every later build uses this key, so updates install over the old app.
+3. Download **stock-audit-android**, unzip it to get `app-release.apk`, and send it to auditors (WhatsApp / Drive).
+4. On the phone: open it → allow *Install unknown apps* once → Install. Allow camera, location and notifications.
+   The first time an audit is opened, the app shows a one-time "Open app settings" tip for battery saver.
 
-The app shows the live website, so improvements reach auditors without reinstalling.
-Rebuild the APK only if the address changes. (Each build is signed with a new key, so to install a
-rebuilt APK, uninstall the old one first.)
+The app shows the live website, so improvements reach auditors without reinstalling. Rebuild the APK only
+for changes to the app itself (icon, permissions, address). The version number rises with every build.
 
 ## Free-plan limits
 | What | Free limit | Expected use |

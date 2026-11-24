@@ -183,3 +183,23 @@ export function keepScreenOn(on: boolean) {
     wakeLock = null;
   }
 }
+
+// ------------------------------------------------------------------ Android app settings (battery / location)
+
+type CapLike = { isNativePlatform?: () => boolean; getPlatform?: () => string; Plugins?: Record<string, unknown> };
+const cap = () => (window as unknown as { Capacitor?: CapLike }).Capacitor;
+
+/** True inside the installed Android app (not a browser). */
+export const isAndroidApp = () => !!cap()?.isNativePlatform?.() && cap()?.getPlatform?.() !== 'ios';
+
+/** Open this app's settings page, where battery saver and "Allow all the time" location are set. */
+export async function openAppSettings(): Promise<boolean> {
+  try {
+    const ns = cap()?.Plugins?.NativeSettings as { openAndroid?: (o: { option: string }) => unknown } | undefined;
+    if (!ns?.openAndroid) return false;
+    await Promise.resolve(ns.openAndroid({ option: 'application_details' }));
+    return true;
+  } catch {
+    return false;
+  }
+}

@@ -1,17 +1,26 @@
 name: Build Android app
 
-# Run from GitHub: Actions → "Build Android app" → Run workflow → enter your website address.
+# GitHub → Actions → "Build Android app" → Run workflow → enter the website address.
 # The APK appears under "Artifacts" at the bottom of the finished run.
+#
+# Signing: the first build (when the two secrets below don't exist yet) creates a permanent
+# signing key and offers it as the artifact "SIGNING-KEY-save-to-github-secrets". Save it as
+# repository secrets ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD (instructions inside).
+# Every later build uses that key, so new versions install over the old app.
 on:
   workflow_dispatch:
     inputs:
       app_url:
-        description: 'Your deployed website address, e.g. https://tj-stock-audit.pages.dev'
+        description: 'Website address'
         required: true
+        default: 'https://tj-stock-audit.sjbjtractor.workers.dev'
 
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -28,10 +37,48 @@ jobs:
         run: npx cap sync android
         env:
           APP_URL: ${{ inputs.app_url }}
+
+      - name: Use the saved signing key
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: First build – create a permanent signing key
+        if: env.KEYSTORE_B64 == ''
+        run: |
+          PASS=$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24)
+          echo "::add-mask::$PASS"
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/release.keystore" -alias stockaudit -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$PASS" -keypass "$PASS" -dname "CN=SJBJ & Associates Stock Audit, O=SJBJ & Associates, C=IN"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$PASS" >> "$GITHUB_ENV"
+          mkdir -p signing-key
+          base64 -w0 "$RUNNER_TEMP/release.keystore" > signing-key/ANDROID_KEYSTORE_B64.txt
+          printf '%s' "$PASS" > signing-key/ANDROID_KEYSTORE_PASSWORD.txt
+          cat > signing-key/README.txt <<'TXT'
+          SAVE THIS ONCE, THEN DELETE THIS DOWNLOAD.
+          GitHub → this repository → Settings → Secrets and variables → Actions → New repository secret:
+            1. Name: ANDROID_KEYSTORE_B64       Value: the whole contents of ANDROID_KEYSTORE_B64.txt
+            2. Name: ANDROID_KEYSTORE_PASSWORD  Value: the contents of ANDROID_KEYSTORE_PASSWORD.txt
+          Future builds then use the same key, so app updates install over the old version.
+          Keep a copy of both files somewhere safe (e.g. the office drive). Do not share them.
+          TXT
+          echo "::warning::New signing key created. Download the SIGNING-KEY artifact and save it as two repository secrets (see README inside)."
+
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
           name: stock-audit-android
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+
+      - uses: actions/upload-artifact@v4
+        if: env.KEYSTORE_B64 == ''
+        with:
+          name: SIGNING-KEY-save-to-github-secrets
+          path: signing-key/
+          retention-days: 3

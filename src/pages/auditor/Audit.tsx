@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, mapsLink } from '../../lib/format';
-import { getPosition, keepScreenOn, tracker } from '../../lib/geo';
+import { getPosition, isAndroidApp, keepScreenOn, openAppSettings, tracker } from '../../lib/geo';
 import type { Accessory, FacilityCheck, Photo, Tractor, VisitDetail } from '../../lib/types';
 import { FACILITY_RATING_LABEL, compareChassis, distanceMetres, facilityProblem, idKey, type FacilityRating, type TractorStatus } from '../../../shared/domain';
 import PhotoButton from '../../components/PhotoButton';
@@ -104,6 +104,7 @@ export default function Audit() {
           <div className="h-full bg-brand-600 transition-all" style={{ width: `${inv.length ? (checked / inv.length) * 100 : 100}%` }} />
         </div>
       </div>
+      <BackgroundTip />
       <Storefront d={d} place={place} setD={setD} />
       <div className="sticky top-[52px] z-[400] -mx-4 mb-4 grid grid-cols-5 border-b border-slate-200 bg-slate-50 px-1 text-[13px]">
         {(
@@ -248,6 +249,55 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
         </div>
       </Card>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ Android: keep tracking alive
+
+const TIP_KEY = 'tj_bg_tip_done';
+
+/** One-time tip in the Android app: phones (Xiaomi, Realme, Vivo, Oppo…) stop background location to save battery. */
+function BackgroundTip() {
+  const [show, setShow] = useState(() => {
+    try {
+      return isAndroidApp() && localStorage.getItem(TIP_KEY) !== '1';
+    } catch {
+      return isAndroidApp();
+    }
+  });
+  if (!show) return null;
+  const done = () => {
+    try {
+      localStorage.setItem(TIP_KEY, '1');
+    } catch {
+      /* ignore */
+    }
+    setShow(false);
+  };
+  return (
+    <Card className="mb-4 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
+      <div className="font-semibold">One-time setting: keep location working with the screen off</div>
+      <ol className="mt-1 list-decimal pl-5">
+        <li>
+          Tap <b>Open app settings</b>
+        </li>
+        <li>
+          <b>Battery</b> → choose <b>Unrestricted</b> / <b>No restrictions</b>
+        </li>
+        <li>
+          <b>Permissions → Location</b> → <b>Allow</b> (and <b>Use precise location</b> on)
+        </li>
+        <li>Come back to this app</li>
+      </ol>
+      <div className="mt-2 flex gap-2">
+        <Button size="sm" onClick={() => void openAppSettings()}>
+          Open app settings
+        </Button>
+        <Button size="sm" variant="secondary" onClick={done}>
+          Done
+        </Button>
+      </div>
+    </Card>
   );
 }
 
