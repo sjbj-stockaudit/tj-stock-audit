@@ -2,9 +2,11 @@ import { useState, type FormEvent } from 'react';
 import { api } from '../lib/api';
 import { Button, Card, ErrorBox, Field, PageTitle, inputCls } from '../components/ui';
 import { useAuth } from '../App';
+import { useT } from '../lib/i18n';
 
 export default function Account() {
   const { me } = useAuth();
+  const t = useT();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
@@ -29,19 +31,19 @@ export default function Account() {
 
   return (
     <div className="max-w-md">
-      <PageTitle title="My account" sub={`${me.name} · ${me.username}`} />
+      <PageTitle title={t('My account')} sub={`${me.name} · ${me.username}`} />
       <Card className="p-4">
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Current password">
+          <Field label={t('Current password')}>
             <input className={inputCls} type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
           </Field>
-          <Field label="New password" hint="At least 8 characters">
+          <Field label={t('New password')} hint={t('At least 8 characters')}>
             <input className={inputCls} type="password" value={next} onChange={(e) => setNext(e.target.value)} minLength={8} required />
           </Field>
           <ErrorBox error={error} />
-          {done && <p className="text-sm text-green-700">Password changed.</p>}
+          {done && <p className="text-sm text-green-700">{t('Password changed.')}</p>}
           <Button type="submit" busy={busy}>
-            Change password
+            {t('Change password')}
           </Button>
         </form>
       </Card>

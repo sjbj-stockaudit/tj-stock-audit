@@ -30,6 +30,8 @@ This app is how you do every stock audit: check in at the centre, check each tra
 ---
 
 ## 2. Sign in
+
+**Hindi:** tap **हिंदी** at the top of the sign-in screen (or in the top bar after signing in) to use the app in Hindi. Tap **English** to switch back.
 1. Enter your **username** and **password** → **Sign in**. You stay signed in on your phone.
 2. Change your starting password the first time: tap **your name** at the top → enter the current and new password → **Change password**.
 
@@ -77,7 +79,7 @@ Tap a tractor in the list. For each one:
 
 The next tractor opens automatically. Use the search box to find a tractor by registration, chassis or engine number.
 
-> Photos can only be taken live in the app – gallery photos cannot be used. Every photo is stamped with time and GPS.
+> Photos can only be taken live in the app – gallery photos cannot be used. Every photo is stamped like a GPS camera photo: a small map with a pin, the address, latitude/longitude, day, date and time. You can take the next photo straight away – photos upload in the background (a spinner shows on the thumbnail; if one says **Retry**, tap it).
 
 ---
 

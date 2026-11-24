@@ -5,6 +5,7 @@ import type { Photo } from '../lib/types';
 import type { PhotoKind } from '../../shared/domain';
 import LiveCamera from './LiveCamera';
 import { cx } from './ui';
+import { useT } from '../lib/i18n';
 
 /**
  * Opens the in-app camera (live only – no gallery), stamps the photo with GPS + time,
@@ -36,6 +37,7 @@ export default function PhotoButton({
   required?: boolean;
 }) {
   const [shooting, setShooting] = useState(false);
+  const t = useT();
   const [error, setError] = useState<string | null>(null);
   // Photos still uploading (or failed): shown at once so the auditor can carry on
   const [pending, setPending] = useState<{ key: string; url: string; photo: StampedPhoto; failed: boolean }[]>([]);
@@ -73,13 +75,13 @@ export default function PhotoButton({
       setPending((list) => list.filter((x) => x.key !== item.key));
       URL.revokeObjectURL(item.url);
     } catch (e) {
-      setError(`${(e as Error).message} – tap Retry on the photo.`);
+      setError(`${t((e as Error).message)} – ${t('Retry')}`);
       setPending((list) => list.map((x) => (x.key === item.key ? { ...x, failed: true } : x)));
     }
   }
 
   async function remove(p: Photo) {
-    if (!confirm('Delete this photo?')) return;
+    if (!confirm(t('Delete this photo?'))) return;
     try {
       await api.del(`/photos/${p.id}`);
       latest.current = latest.current.filter((x) => x.id !== p.id);
@@ -109,7 +111,7 @@ export default function PhotoButton({
             <img src={x.url} alt={label} className={cx('h-20 w-20 rounded-lg object-cover ring-1', x.failed ? 'ring-red-500' : 'opacity-70 ring-slate-200')} />
             {x.failed ? (
               <button onClick={() => void upload(x)} className="absolute inset-x-1 bottom-1 rounded bg-red-600 py-0.5 text-[11px] font-medium text-white">
-                Retry
+                {t('Retry')}
               </button>
             ) : (
               <span className="absolute inset-0 flex items-center justify-center">
@@ -131,7 +133,7 @@ export default function PhotoButton({
               <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
               <circle cx="12" cy="13" r="3.5" />
             </svg>
-            {photos.length || pending.length ? 'Add another' : label}
+            {photos.length || pending.length ? t('Add another') : label}
           </button>
         )}
       </div>
@@ -141,8 +143,8 @@ export default function PhotoButton({
             facing="environment"
             title={stampTitle}
             place={place}
-            captureLabel="Take photo"
-            confirmLabel="Use photo"
+            captureLabel={t('Take photo')}
+            confirmLabel={t('Use photo')}
             onConfirm={onTaken}
             onCancel={() => setShooting(false)}
           />

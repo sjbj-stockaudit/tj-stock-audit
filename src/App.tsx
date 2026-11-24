@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom'
 import { api } from './lib/api';
 import type { Me } from './lib/types';
 import { Loading, cx } from './components/ui';
+import { LangToggle, setOfficeMode, useT } from './lib/i18n';
 import Login from './pages/Login';
 import Splash from './components/Splash';
 import Setup from './pages/Setup';
@@ -51,6 +52,9 @@ export default function App() {
     };
   }, [refresh]);
 
+  // Hindi is offered to auditors only; office, client and planner screens stay English
+  useEffect(() => setOfficeMode(!!me && me.role !== 'auditor'), [me]);
+
   const logout = useCallback(async () => {
     await api.post('/logout').catch(() => undefined);
     setMe(null);
@@ -89,6 +93,7 @@ function Main({
 
 function AuditorShell() {
   const { me, logout } = useAuth();
+  const t = useT();
   return (
     <div className="mx-auto min-h-screen max-w-xl">
       <header className="sticky top-0 z-[500] flex items-center justify-between bg-brand-900 px-4 py-3 text-white">
@@ -96,12 +101,13 @@ function AuditorShell() {
           <img src="/icon.svg" alt="" className="h-7 w-7" />
           Stock Audit
         </NavLink>
-        <div className="flex items-center gap-3 text-sm">
+        <div className="flex items-center gap-2 text-sm">
+          <LangToggle dark />
           <NavLink to="/account" className="opacity-90">
             {me.name.split(' ')[0]}
           </NavLink>
           <button onClick={logout} className="rounded-md bg-white/10 px-2 py-1">
-            Sign out
+            {t('Sign out')}
           </button>
         </div>
       </header>

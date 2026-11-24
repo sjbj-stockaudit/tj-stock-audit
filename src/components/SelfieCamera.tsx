@@ -1,5 +1,6 @@
 import type { StampedPhoto } from '../lib/camera';
 import LiveCamera from './LiveCamera';
+import { useT } from '../lib/i18n';
 
 /** Live front-camera selfie (no gallery). */
 export default function SelfieCamera(props: {
@@ -9,5 +10,6 @@ export default function SelfieCamera(props: {
   confirmLabel: string;
   busy?: boolean;
 }) {
-  return <LiveCamera facing="user" captureLabel="Take selfie" {...props} />;
+  const t = useT();
+  return <LiveCamera facing="user" captureLabel={t('Take selfie')} {...props} />;
 }

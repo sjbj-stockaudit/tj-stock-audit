@@ -11,11 +11,13 @@ import LiveCamera from '../../components/LiveCamera';
 import type { StampedPhoto } from '../../lib/camera';
 import { useAuth } from '../../App';
 import SignaturePad from '../../components/SignaturePad';
+import { useT } from '../../lib/i18n';
 import { Button, Card, ErrorBox, Field, Loading, Modal, TractorBadge, VisitBadge, cx, inputCls, useLoad } from '../../components/ui';
 
 type Tab = 'tractors' | 'extra' | 'accessories' | 'facility' | 'finish';
 
 export default function Audit() {
+  const tr = useT();
   const { id } = useParams();
   const visitId = Number(id);
   const load = useLoad(() => api.get<VisitDetail>(`/visits/${visitId}`), [visitId]);
@@ -40,13 +42,13 @@ export default function Audit() {
   const header = (
     <div className="mb-4">
       <Link to="/" className="text-sm text-brand-700">
-        ← My centres
+        {tr('← My centres')}
       </Link>
       <div className="mt-1 flex items-start justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold">{v.centre_name}</h1>
           <p className="text-xs text-slate-500">
-            {fmtDate(v.audit_date)} · {d.tractors.filter((t) => t.source === 'inventory').length} tractors in stock list
+            {fmtDate(v.audit_date)} · {tr('{n} tractors in stock list', { n: d.tractors.filter((t) => t.source === 'inventory').length })}
           </p>
         </div>
         <VisitBadge status={v.status} />
@@ -69,13 +71,13 @@ export default function Audit() {
         {header}
         <Card className="p-6 text-center">
           <div className="text-4xl">✅</div>
-          <h2 className="mt-2 font-semibold">{v.outcome === 'not_done' ? 'Reported: audit not carried out' : 'Audit submitted'}</h2>
+          <h2 className="mt-2 font-semibold">{tr(v.outcome === 'not_done' ? 'Reported: audit not carried out' : 'Audit submitted')}</h2>
           {v.outcome === 'not_done' && <p className="mt-1 text-sm text-slate-600">{v.outcome_reason}</p>}
           <p className="mt-1 text-sm text-slate-600">
-            Submitted {fmtDateTime(v.submitted_at)}. Checked out {fmtDateTime(v.checkout_at)}.
+            {tr('Submitted {a}. Checked out {b}.', { a: fmtDateTime(v.submitted_at), b: fmtDateTime(v.checkout_at) })}
           </p>
           <Link to="/" className="mt-4 inline-block font-medium text-brand-800">
-            Back to my centres
+            {tr('Back to my centres')}
           </Link>
         </Card>
       </>
@@ -90,15 +92,13 @@ export default function Audit() {
       {header}
       {v.review_note && (
         <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          <span className="font-medium">Correction needed:</span> {v.review_note}
+          <span className="font-medium">{tr('Correction needed:')}</span> {v.review_note}
         </div>
       )}
       <div className="mb-3">
         <div className="mb-1 flex justify-between text-xs text-slate-500">
-          <span>
-            {checked} of {inv.length} checked
-          </span>
-          <span>Location is being recorded until you submit</span>
+          <span>{tr('{a} of {b} checked', { a: checked, b: inv.length })}</span>
+          <span>{tr('Location is being recorded until you submit')}</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-slate-200">
           <div className="h-full bg-brand-600 transition-all" style={{ width: `${inv.length ? (checked / inv.length) * 100 : 100}%` }} />
@@ -109,11 +109,11 @@ export default function Audit() {
       <div className="sticky top-[52px] z-[400] -mx-4 mb-4 grid grid-cols-5 border-b border-slate-200 bg-slate-50 px-1 text-[13px]">
         {(
           [
-            ['tractors', `Stock (${inv.length})`],
-            ['extra', `Extra (${extras.length})`],
-            ['accessories', `Accessories (${d.accessories.length})`],
-            ['facility', 'Facility'],
-            ['finish', 'Finish'],
+            ['tractors', tr('Stock ({n})', { n: inv.length })],
+            ['extra', tr('Extra ({n})', { n: extras.length })],
+            ['accessories', tr('Accessories ({n})', { n: d.accessories.length })],
+            ['facility', tr('Facility')],
+            ['finish', tr('Finish')],
           ] as [Tab, string][]
         ).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)} className={cx('border-b-2 px-1 py-2.5', tab === k ? 'border-brand-700 font-semibold text-brand-900' : 'border-transparent text-slate-500')}>
@@ -133,6 +133,7 @@ export default function Audit() {
 // ------------------------------------------------------------------ check-in
 
 function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
+  const tr = useT();
   const v = d.visit;
   const { me } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -173,7 +174,7 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
     <div className="space-y-4">
       {v.status === 'returned' && v.review_note && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          <span className="font-medium">Sent back by the office:</span> {v.review_note}
+          <span className="font-medium">{tr('Sent back by the office:')}</span> {v.review_note}
         </div>
       )}
       <Card className="p-4">
@@ -182,7 +183,7 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
           <div className="mt-2 space-y-0.5 text-sm">
             {v.centre_manager && (
               <div>
-                Manager: <strong>{v.centre_manager}</strong>{' '}
+                {tr('Manager:')} <strong>{v.centre_manager}</strong>{' '}
                 {v.centre_manager_phone && (
                   <a href={`tel:${v.centre_manager_phone}`} className="text-brand-700 underline">
                     {v.centre_manager_phone}
@@ -193,7 +194,7 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
             {(v.opening_hours || v.weekly_off) && (
               <div className="text-slate-600">
                 {v.opening_hours}
-                {v.weekly_off && ` · Closed ${v.weekly_off}`}
+                {v.weekly_off && ` · ${tr('Closed {day}', { day: v.weekly_off })}`}
               </div>
             )}
           </div>
@@ -204,29 +205,26 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
           rel="noreferrer"
           className="mt-3 flex items-center justify-center gap-2 rounded-lg border border-slate-300 py-3 font-medium text-slate-800"
         >
-          Open directions in Google Maps
+          {tr('Open directions in Google Maps')}
         </a>
       </Card>
       <Card className="p-4">
-        <h2 className="font-semibold">{v.status === 'returned' ? 'Continue the audit' : 'Reached the centre?'}</h2>
+        <h2 className="font-semibold">{tr(v.status === 'returned' ? 'Continue the audit' : 'Reached the centre?')}</h2>
         <p className="mt-1 text-sm text-slate-600">
-          {needsSelfie ? 'Take a selfie at the centre (with the showroom behind you if possible). ' : ''}
-          Checking in records your location and time. Your location is recorded until you submit the audit.
+          {needsSelfie ? tr('Take a selfie at the centre (with the showroom behind you if possible). ') : ''}
+          {tr('Checking in records your location and time. Your location is recorded until you submit the audit.')}
         </p>
         <div className="mt-4 space-y-3">
           <ErrorBox error={error} />
           {far ? (
             <div className="space-y-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-              <p>
-                You are <strong>{fmtDistance(far.dist)}</strong> from the centre's saved location. If you are at the centre, check in anyway – the
-                office will see the distance.
-              </p>
+              <p>{tr("You are {d} from the centre's saved location. If you are at the centre, check in anyway – the office will see the distance.", { d: fmtDistance(far.dist) })}</p>
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={() => (setFar(null), void checkIn())} disabled={busy}>
-                  Try again
+                  {tr('Try again')}
                 </Button>
                 <Button variant="warning" onClick={() => checkIn(true)} busy={busy}>
-                  Check in anyway
+                  {tr('Check in anyway')}
                 </Button>
               </div>
             </div>
@@ -234,7 +232,7 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
             <SelfieCamera
               title={`Check-in · ${me.name}`}
               place={`${v.centre_name}, ${v.state}`}
-              confirmLabel="Check in"
+              confirmLabel={tr('Check in')}
               busy={busy}
               onConfirm={(photo) => {
                 setSelfie(photo);
@@ -243,7 +241,7 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
             />
           ) : (
             <Button size="lg" onClick={() => checkIn()} busy={busy}>
-              {v.status === 'returned' ? 'Check in and fix' : 'Check in'}
+              {tr(v.status === 'returned' ? 'Check in and fix' : 'Check in')}
             </Button>
           )}
         </div>
@@ -258,6 +256,7 @@ const TIP_KEY = 'tj_bg_tip_done';
 
 /** One-time tip in the Android app: phones (Xiaomi, Realme, Vivo, Oppo…) stop background location to save battery. */
 function BackgroundTip() {
+  const tr = useT();
   const [show, setShow] = useState(() => {
     try {
       return isAndroidApp() && localStorage.getItem(TIP_KEY) !== '1';
@@ -276,25 +275,19 @@ function BackgroundTip() {
   };
   return (
     <Card className="mb-4 border-blue-300 bg-blue-50 p-3 text-sm text-blue-900">
-      <div className="font-semibold">One-time setting: keep location working with the screen off</div>
+      <div className="font-semibold">{tr('One-time setting: keep location working with the screen off')}</div>
       <ol className="mt-1 list-decimal pl-5">
-        <li>
-          Tap <b>Open app settings</b>
-        </li>
-        <li>
-          <b>Battery</b> → choose <b>Unrestricted</b> / <b>No restrictions</b>
-        </li>
-        <li>
-          <b>Permissions → Location</b> → <b>Allow</b> (and <b>Use precise location</b> on)
-        </li>
-        <li>Come back to this app</li>
+        <li>{tr('Tap "Open app settings"')}</li>
+        <li>{tr('Battery → choose Unrestricted / No restrictions')}</li>
+        <li>{tr('Permissions → Location → Allow (and Use precise location on)')}</li>
+        <li>{tr('Come back to this app')}</li>
       </ol>
       <div className="mt-2 flex gap-2">
         <Button size="sm" onClick={() => void openAppSettings()}>
-          Open app settings
+          {tr('Open app settings')}
         </Button>
         <Button size="sm" variant="secondary" onClick={done}>
-          Done
+          {tr('Done')}
         </Button>
       </div>
     </Card>
@@ -305,19 +298,20 @@ function BackgroundTip() {
 
 /** Mandatory photo of the showroom front (with the board visible), once per visit. */
 function Storefront({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
+  const tr = useT();
   const photos = d.photos.filter((p) => p.kind === 'storefront');
   const done = photos.length > 0;
   return (
     <Card className={cx('mb-4 p-3', !done && 'border-amber-300 bg-amber-50')}>
       <div className="mb-2 flex items-center justify-between">
-        <div className="text-sm font-semibold">Storefront photo *</div>
-        {done ? <span className="text-xs text-green-700">✓ Taken</span> : <span className="text-xs text-amber-800">Required</span>}
+        <div className="text-sm font-semibold">{tr('Storefront photo *')}</div>
+        {done ? <span className="text-xs text-green-700">{tr('✓ Taken')}</span> : <span className="text-xs text-amber-800">{tr('Required')}</span>}
       </div>
-      {!done && <p className="mb-2 text-xs text-amber-900">Stand outside and take the whole showroom front with the Tractor Junction board visible.</p>}
+      {!done && <p className="mb-2 text-xs text-amber-900">{tr('Stand outside and take the whole showroom front with the Tractor Junction board visible.')}</p>}
       <PhotoButton
         visitId={d.visit.id}
         kind="storefront"
-        label="Storefront photo"
+        label={tr('Storefront photo')}
         stampTitle={`Storefront · ${d.visit.centre_name}`}
         place={place}
         photos={photos}
@@ -335,6 +329,7 @@ const photosOf = (d: VisitDetail, t: Tractor) => d.photos.filter((p) => p.tracto
 const replacePhotos = (d: VisitDetail, keep: (p: Photo) => boolean, next: Photo[]) => ({ ...d, photos: [...d.photos.filter(keep), ...next] });
 
 function TractorList({ d, list, place, setD }: { d: VisitDetail; list: Tractor[]; place: string; setD: SetD }) {
+  const tr = useT();
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<'all' | 'pending' | 'done'>('all');
   const [open, setOpen] = useState<number | null>(null);
@@ -357,11 +352,11 @@ function TractorList({ d, list, place, setD }: { d: VisitDetail; list: Tractor[]
   return (
     <div>
       <div className="mb-3 flex gap-2">
-        <input className={inputCls} placeholder="Search reg / chassis / engine no." value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className={inputCls} placeholder={tr('Search reg / chassis / engine no.')} value={q} onChange={(e) => setQ(e.target.value)} />
         <select className={`${inputCls} w-auto`} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} aria-label="Filter">
-          <option value="all">All</option>
-          <option value="pending">To check</option>
-          <option value="done">Checked</option>
+          <option value="all">{tr('All')}</option>
+          <option value="pending">{tr('To check')}</option>
+          <option value="done">{tr('Checked')}</option>
         </select>
       </div>
       <div className="space-y-2">
@@ -371,18 +366,20 @@ function TractorList({ d, list, place, setD }: { d: VisitDetail; list: Tractor[]
             <button key={t.id} onClick={() => setOpen(t.id)} className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-left">
               <div className="min-w-0">
                 <div className="font-mono font-semibold">{t.reg_no || '—'}</div>
-                <div className="truncate font-mono text-xs text-slate-500">Chassis {t.chassis_no}</div>
+                <div className="truncate font-mono text-xs text-slate-500">
+                  {tr('Chassis')} {t.chassis_no}
+                </div>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
                 <TractorBadge status={t.status} />
                 {t.status !== 'pending' && t.status !== 'not_found' && (!n || !photosOf(d, t).some((p) => p.kind === 'tractor')) && (
-                  <span className="text-xs text-amber-600">photo missing</span>
+                  <span className="text-xs text-amber-600">{tr('photo missing')}</span>
                 )}
               </div>
             </button>
           );
         })}
-        {!shown.length && <p className="p-4 text-center text-sm text-slate-500">No tractors match.</p>}
+        {!shown.length && <p className="p-4 text-center text-sm text-slate-500">{tr('No tractors match.')}</p>}
       </div>
       {current && (
         <TractorSheet
@@ -417,6 +414,7 @@ function TractorSheet({
   onSaved: (t: Tractor) => void;
   setD: SetD;
 }) {
+  const tr = useT();
   const [reg, setReg] = useState(t.verified_reg ?? t.reg_no ?? '');
   const [chassis, setChassis] = useState(t.verified_chassis ?? '');
   const [remarks, setRemarks] = useState(t.remarks ?? '');
@@ -454,19 +452,19 @@ function TractorSheet({
     <Modal open onClose={onClose} title={name}>
       <div className="space-y-4">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-slate-50 p-3 text-sm">
-          <span className="text-slate-500">Reg. no</span>
+          <span className="text-slate-500">{tr('Reg. no')}</span>
           <span className="font-mono font-semibold">{t.reg_no}</span>
-          <span className="text-slate-500">Chassis</span>
+          <span className="text-slate-500">{tr('Chassis')}</span>
           <span className="font-mono font-semibold break-all">{t.chassis_no}</span>
-          <span className="text-slate-500">Engine</span>
+          <span className="text-slate-500">{tr('Engine')}</span>
           <span className="font-mono break-all">{t.engine_no}</span>
         </div>
 
-        <Field group label="1. Photo of the chassis number *">
+        <Field group label={tr('1. Photo of the chassis number *')}>
           <PhotoButton
             visitId={d.visit.id}
             kind="chassis"
-            label="Chassis photo"
+            label={tr('Chassis photo')}
             stampTitle={`${name} · Chassis ${t.chassis_no ?? ''}`}
             place={place}
             tractorId={t.id}
@@ -475,11 +473,11 @@ function TractorSheet({
             onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'chassis'), ps))}
           />
         </Field>
-        <Field group label="2. Photo of the whole tractor *">
+        <Field group label={tr('2. Photo of the whole tractor *')}>
           <PhotoButton
             visitId={d.visit.id}
             kind="tractor"
-            label="Tractor photo"
+            label={tr('Tractor photo')}
             stampTitle={`${name} · Tractor`}
             place={place}
             tractorId={t.id}
@@ -489,34 +487,34 @@ function TractorSheet({
           />
         </Field>
 
-        <Field label="3. Chassis number on the tractor *" hint="Type exactly what is punched on the chassis.">
+        <Field label={tr('3. Chassis number on the tractor *')} hint={tr('Type exactly what is punched on the chassis.')}>
           <input className={`${inputCls} font-mono uppercase`} value={chassis} onChange={(e) => setChassis(e.target.value.toUpperCase())} autoCapitalize="characters" />
         </Field>
-        {cmp === 'match' && <p className="-mt-2 text-sm font-medium text-green-700">✓ Matches the stock list</p>}
-        {cmp === 'near' && <p className="-mt-2 text-sm font-medium text-amber-700">Almost matches – check each character (0/O, 1/I, 5/S, 8/B).</p>}
-        {cmp === 'different' && <p className="-mt-2 text-sm font-medium text-red-600">Does not match the stock list ({t.chassis_no}).</p>}
+        {cmp === 'match' && <p className="-mt-2 text-sm font-medium text-green-700">{tr('✓ Matches the stock list')}</p>}
+        {cmp === 'near' && <p className="-mt-2 text-sm font-medium text-amber-700">{tr('Almost matches – check each character (0/O, 1/I, 5/S, 8/B).')}</p>}
+        {cmp === 'different' && <p className="-mt-2 text-sm font-medium text-red-600">{tr('Does not match the stock list ({c}).', { c: t.chassis_no })}</p>}
 
-        <Field label="RC / registration number seen">
+        <Field label={tr('RC / registration number seen')}>
           <input className={`${inputCls} font-mono uppercase`} value={reg} onChange={(e) => setReg(e.target.value.toUpperCase())} />
         </Field>
-        <Field label="Remarks">
-          <input className={inputCls} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional (required for mismatch)" />
+        <Field label={tr('Remarks')}>
+          <input className={inputCls} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder={tr('Optional (required for mismatch)')} />
         </Field>
         <ErrorBox error={error} />
         <div className="grid grid-cols-3 gap-2">
           <Button onClick={() => save('verified')} busy={busy} disabled={cmp !== 'match' && cmp !== 'near'} className="py-3">
-            ✓ Verified
+            {tr('✓ Verified')}
           </Button>
           <Button variant="warning" onClick={() => save('mismatch')} disabled={busy || cmp === 'empty'} className="py-3">
-            Mismatch
+            {tr('Mismatch')}
           </Button>
           <Button variant="danger" onClick={() => save('not_found')} disabled={busy} className="py-3">
-            Not found
+            {tr('Not found')}
           </Button>
         </div>
         {t.status !== 'pending' && (
           <p className="text-center text-xs text-slate-500">
-            Currently marked <TractorBadge status={t.status} />
+            {tr('Currently marked')} <TractorBadge status={t.status} />
           </p>
         )}
       </div>
@@ -527,6 +525,7 @@ function TractorSheet({
 // ------------------------------------------------------------------ extras
 
 function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
+  const tr = useT();
   const extras = d.tractors.filter((t) => t.source === 'extra');
   const [f, setF] = useState({ reg_no: '', chassis_no: '', remarks: '' });
   const [busy, setBusy] = useState(false);
@@ -546,7 +545,7 @@ function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD 
     }
   }
   async function remove(t: Tractor) {
-    if (!confirm(`Remove extra tractor ${t.reg_no ?? t.chassis_no}?`)) return;
+    if (!confirm(tr('Remove extra tractor {x}?', { x: t.reg_no ?? t.chassis_no ?? '' }))) return;
     await api.del(`/tractors/${t.id}`);
     setD((x) => ({ ...x, tractors: x.tractors.filter((y) => y.id !== t.id), photos: x.photos.filter((p) => p.tractor_id !== t.id) }));
   }
@@ -556,23 +555,25 @@ function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD 
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-600">Tractors physically at the centre that are <strong>not</strong> in the stock list.</p>
+      <p className="text-sm text-slate-600">{tr('Tractors physically at the centre that are not in the stock list.')}</p>
       {extras.map((t) => (
         <Card key={t.id} className="space-y-3 p-3">
           <div className="flex items-start justify-between">
             <div>
-              <div className="font-mono font-semibold">{t.reg_no || 'No reg. no'}</div>
-              <div className="font-mono text-xs text-slate-500">Chassis {t.chassis_no || '—'}</div>
+              <div className="font-mono font-semibold">{t.reg_no || tr('No reg. no')}</div>
+              <div className="font-mono text-xs text-slate-500">
+                {tr('Chassis')} {t.chassis_no || '—'}
+              </div>
               {t.remarks && <div className="text-xs text-slate-600">{t.remarks}</div>}
             </div>
             <button onClick={() => remove(t)} className="text-sm text-red-600">
-              Remove
+              {tr('Remove')}
             </button>
           </div>
           <PhotoButton
             visitId={d.visit.id}
             kind="chassis"
-            label="Chassis photo"
+            label={tr('Chassis photo')}
             stampTitle={`EXTRA ${t.reg_no ?? ''} · Chassis ${t.chassis_no ?? ''}`}
             place={place}
             tractorId={t.id}
@@ -583,7 +584,7 @@ function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD 
           <PhotoButton
             visitId={d.visit.id}
             kind="tractor"
-            label="Tractor photo"
+            label={tr('Tractor photo')}
             stampTitle={`EXTRA ${t.reg_no ?? ''} · Tractor`}
             place={place}
             tractorId={t.id}
@@ -594,20 +595,20 @@ function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD 
         </Card>
       ))}
       <Card className="space-y-3 p-3">
-        <h3 className="font-semibold">Add extra tractor</h3>
-        <Field label="Registration no.">
+        <h3 className="font-semibold">{tr('Add extra tractor')}</h3>
+        <Field label={tr('Registration no.')}>
           <input className={`${inputCls} font-mono uppercase`} value={f.reg_no} onChange={(e) => setF({ ...f, reg_no: e.target.value.toUpperCase() })} />
         </Field>
-        <Field label="Chassis no.">
+        <Field label={tr('Chassis no.')}>
           <input className={`${inputCls} font-mono uppercase`} value={f.chassis_no} onChange={(e) => setF({ ...f, chassis_no: e.target.value.toUpperCase() })} />
         </Field>
-        {listed(f.chassis_no) && <p className="text-sm text-amber-700">This chassis is in the stock list ({listed(f.chassis_no)!.reg_no}). Check it in the Stock tab instead.</p>}
-        <Field label="Remarks">
+        {listed(f.chassis_no) && <p className="text-sm text-amber-700">{tr('This chassis is in the stock list ({r}). Check it in the Stock tab instead.', { r: listed(f.chassis_no)!.reg_no ?? '' })}</p>}
+        <Field label={tr('Remarks')}>
           <input className={inputCls} value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} />
         </Field>
         <ErrorBox error={error} />
         <Button onClick={add} busy={busy} disabled={!f.reg_no.trim() && !f.chassis_no.trim()}>
-          Add, then take photos
+          {tr('Add, then take photos')}
         </Button>
       </Card>
     </div>
@@ -619,6 +620,7 @@ function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD 
 const ACCESSORY_SUGGESTIONS = ['Top Link', 'Drawer Patti', 'Old Battery', 'New Battery', 'Hood', 'Front Tyre', 'Rear Tyre', 'Rim', 'Trolley', 'Cultivator', 'Rotavator'];
 
 function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
+  const tr = useT();
   const [f, setF] = useState({ name: '', qty: '1', remarks: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -637,7 +639,7 @@ function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: 
     }
   }
   async function remove(a: Accessory) {
-    if (!confirm(`Remove ${a.name}?`)) return;
+    if (!confirm(tr('Remove {x}?', { x: a.name }))) return;
     await api.del(`/accessories/${a.id}`);
     setD((x) => ({ ...x, accessories: x.accessories.filter((y) => y.id !== a.id), photos: x.photos.filter((p) => p.accessory_id !== a.id) }));
   }
@@ -654,13 +656,13 @@ function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: 
               {a.remarks && <div className="text-xs text-slate-600">{a.remarks}</div>}
             </div>
             <button onClick={() => remove(a)} className="text-sm text-red-600">
-              Remove
+              {tr('Remove')}
             </button>
           </div>
           <PhotoButton
             visitId={d.visit.id}
             kind="accessory"
-            label="Photo"
+            label={tr('Photo')}
             stampTitle={`${a.name} × ${a.qty}`}
             place={place}
             accessoryId={a.id}
@@ -671,9 +673,9 @@ function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: 
         </Card>
       ))}
       <Card className="space-y-3 p-3">
-        <h3 className="font-semibold">Add accessory</h3>
+        <h3 className="font-semibold">{tr('Add accessory')}</h3>
         <div className="grid grid-cols-[1fr_5rem] gap-2">
-          <Field label="Item">
+          <Field label={tr('Item')}>
             <input className={inputCls} list="acc-suggest" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
             <datalist id="acc-suggest">
               {ACCESSORY_SUGGESTIONS.map((s) => (
@@ -681,16 +683,16 @@ function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: 
               ))}
             </datalist>
           </Field>
-          <Field label="Qty">
+          <Field label={tr('Qty')}>
             <input className={inputCls} type="number" inputMode="numeric" min={0} value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
           </Field>
         </div>
-        <Field label="Remarks">
-          <input className={inputCls} value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} placeholder="e.g. 2 bundles of 5, 2 unpacked" />
+        <Field label={tr('Remarks')}>
+          <input className={inputCls} value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} placeholder={tr('e.g. 2 bundles of 5, 2 unpacked')} />
         </Field>
         <ErrorBox error={error} />
         <Button onClick={add} busy={busy} disabled={!f.name.trim()}>
-          Add, then take photo
+          {tr('Add, then take photo')}
         </Button>
       </Card>
     </div>
@@ -707,6 +709,7 @@ const RATING_TONE: Record<FacilityRating, string> = {
 };
 
 function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
+  const tr = useT();
   const [newArea, setNewArea] = useState('');
   const [error, setError] = useState<string | null>(null);
   const done = d.facility.filter((f) => !facilityProblem(f, d.photos.filter((p) => p.facility_id === f.id).length)).length;
@@ -730,7 +733,7 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
     }
   }
   async function remove(f: FacilityCheck) {
-    if (!confirm(`Remove "${f.area}"?`)) return;
+    if (!confirm(tr('Remove "{x}"?', { x: tr(f.area) }))) return;
     await api.del(`/facility/${f.id}`);
     setD((x) => ({ ...x, facility: x.facility.filter((y) => y.id !== f.id), photos: x.photos.filter((p) => p.facility_id !== f.id) }));
   }
@@ -738,8 +741,8 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
   return (
     <div className="space-y-3">
       <p className="text-sm text-slate-600">
-        How is the stock kept? Rate each area and take at least one photo (racks, arrangement, condition of goods). A remark is required for <b>Poor</b> or{' '}
-        <b>Not applicable</b>. <span className="text-slate-500">{done}/{d.facility.length} done</span>
+        {tr('How is the stock kept? Rate each area and take at least one photo (racks, arrangement, condition of goods). A remark is required for Poor or Not applicable.')}{' '}
+        <span className="text-slate-500">{tr('{a}/{b} done', { a: done, b: d.facility.length })}</span>
       </p>
       <ErrorBox error={error} />
       {d.facility.map((f) => {
@@ -748,8 +751,8 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
         return (
           <Card key={f.id} className={cx('space-y-3 p-3', problem && f.rating && 'border-amber-300')}>
             <div className="flex items-start justify-between gap-2">
-              <div className="font-semibold">{f.area}</div>
-              {problem ? <span className="text-xs text-amber-700">{problem}</span> : <span className="text-xs text-green-700">✓ Done</span>}
+              <div className="font-semibold">{tr(f.area)}</div>
+              {problem ? <span className="text-xs text-amber-700">{tr(problem)}</span> : <span className="text-xs text-green-700">{tr('✓ Done')}</span>}
             </div>
             <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label={`Condition of ${f.area}`}>
               {(Object.keys(FACILITY_RATING_LABEL) as FacilityRating[]).map((r) => (
@@ -760,7 +763,7 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
                   onClick={() => save(f, { rating: r })}
                   className={cx('rounded-lg border px-1 py-2 text-xs font-medium', f.rating === r ? RATING_TONE[r] : 'border-slate-300 bg-white text-slate-700')}
                 >
-                  {r === 'na' ? 'N/A' : FACILITY_RATING_LABEL[r]}
+                  {tr(r === 'na' ? 'N/A' : FACILITY_RATING_LABEL[r])}
                 </button>
               ))}
             </div>
@@ -768,7 +771,7 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
               <PhotoButton
                 visitId={d.visit.id}
                 kind="facility"
-                label="Photo"
+                label={tr('Photo')}
                 stampTitle={`Facility · ${f.area}`}
                 place={place}
                 facilityId={f.id}
@@ -780,22 +783,22 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
             <input
               className={inputCls}
               defaultValue={f.remarks ?? ''}
-              placeholder={f.rating === 'poor' || f.rating === 'na' ? 'Remark (required)' : 'Remark (optional) – e.g. racks labelled, batteries on floor'}
+              placeholder={tr(f.rating === 'poor' || f.rating === 'na' ? 'Remark (required)' : 'Remark (optional) – e.g. racks labelled, batteries on floor')}
               onBlur={(e) => e.target.value !== (f.remarks ?? '') && save(f, { remarks: e.target.value })}
               aria-label={`Remark for ${f.area}`}
             />
             {!!f.is_custom && (
               <button onClick={() => remove(f)} className="text-sm text-red-600">
-                Remove this area
+                {tr('Remove this area')}
               </button>
             )}
           </Card>
         );
       })}
       <Card className="flex gap-2 p-3">
-        <input className={inputCls} value={newArea} onChange={(e) => setNewArea(e.target.value)} placeholder="Another area, e.g. Workshop" aria-label="New area" />
+        <input className={inputCls} value={newArea} onChange={(e) => setNewArea(e.target.value)} placeholder={tr('Another area, e.g. Workshop')} aria-label="New area" />
         <Button variant="secondary" onClick={add} disabled={!newArea.trim()}>
-          Add
+          {tr('Add')}
         </Button>
       </Card>
     </div>
@@ -808,6 +811,7 @@ const NOT_DONE_REASONS = ['Centre closed', 'Manager / staff not available', 'Cen
 
 /** Report that the audit could not be carried out, with a live storefront photo and GPS as proof. */
 function NotDone({ d }: { d: VisitDetail }) {
+  const tr = useT();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
@@ -842,31 +846,33 @@ function NotDone({ d }: { d: VisitDetail }) {
   return (
     <div className="mt-4">
       <button onClick={() => setOpen(true)} className="w-full rounded-lg border border-red-200 bg-white py-3 text-sm font-medium text-red-700">
-        Centre closed / can't audit?
+        {tr("Centre closed / can't audit?")}
       </button>
-      <Modal open={open} onClose={() => !busy && setOpen(false)} title="Audit could not be carried out">
+      <Modal open={open} onClose={() => !busy && setOpen(false)} title={tr('Audit could not be carried out')}>
         <div className="space-y-3">
           <p className="text-sm text-slate-600">
-            Use this only if you are at {v.centre_name} and the audit cannot be done today. The office will review it.
+            {tr('Use this only if you are at {c} and the audit cannot be done today. The office will review it.', { c: v.centre_name })}
           </p>
-          <Field label="Reason *">
+          <Field label={tr('Reason *')}>
             <select className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)}>
-              <option value="">Choose…</option>
+              <option value="">{tr('Choose…')}</option>
               {NOT_DONE_REASONS.map((r) => (
-                <option key={r}>{r}</option>
+                <option key={r} value={r}>
+                  {tr(r)}
+                </option>
               ))}
             </select>
           </Field>
-          <Field label={reason === 'Other' ? 'What happened? *' : 'Details (optional)'}>
-            <textarea className={inputCls} rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. shutter down, manager phone switched off" />
+          <Field label={tr(reason === 'Other' ? 'What happened? *' : 'Details (optional)')}>
+            <textarea className={inputCls} rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tr('e.g. shutter down, manager phone switched off')} />
           </Field>
-          <div className="text-sm font-medium text-slate-700">Photo of the storefront as proof *</div>
+          <div className="text-sm font-medium text-slate-700">{tr('Photo of the storefront as proof *')}</div>
           <LiveCamera
             facing="environment"
             title={`Not carried out · ${v.centre_name}`}
             place={`${v.centre_name}, ${v.state}`}
-            captureLabel="Take photo"
-            confirmLabel="Send report"
+            captureLabel={tr('Take photo')}
+            confirmLabel={tr('Send report')}
             busy={busy}
             onConfirm={send}
           />
@@ -880,6 +886,7 @@ function NotDone({ d }: { d: VisitDetail }) {
 // ------------------------------------------------------------------ finish: signatures & submit
 
 function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; onSubmitted: () => void; goTo: (t: Tab) => void }) {
+  const tr = useT();
   const v = d.visit;
   const navigate = useNavigate();
   const [manager, setManager] = useState(v.manager_name ?? v.centre_manager ?? '');
@@ -891,18 +898,18 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
   const problems = useMemo(() => {
     const p: { msg: string; tab: Tab }[] = [];
     const pending = d.tractors.filter((t) => t.status === 'pending').length;
-    if (pending) p.push({ msg: `${pending} tractor(s) not checked yet`, tab: 'tractors' });
+    if (pending) p.push({ msg: tr('{n} tractor(s) not checked yet', { n: pending }), tab: 'tractors' });
     const noPhoto = d.tractors.filter((t) => t.status !== 'pending' && t.status !== 'not_found' && !d.photos.some((x) => x.tractor_id === t.id && x.kind === 'chassis'));
-    if (noPhoto.length) p.push({ msg: `${noPhoto.length} tractor(s) without chassis photo`, tab: noPhoto.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
+    if (noPhoto.length) p.push({ msg: tr('{n} tractor(s) without chassis photo', { n: noPhoto.length }), tab: noPhoto.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
     const noTractor = d.tractors.filter((t) => t.status !== 'pending' && t.status !== 'not_found' && !d.photos.some((x) => x.tractor_id === t.id && x.kind === 'tractor'));
-    if (noTractor.length) p.push({ msg: `${noTractor.length} tractor(s) without tractor photo`, tab: noTractor.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
+    if (noTractor.length) p.push({ msg: tr('{n} tractor(s) without tractor photo', { n: noTractor.length }), tab: noTractor.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
     const accNo = d.accessories.filter((a) => !d.photos.some((x) => x.accessory_id === a.id));
-    if (accNo.length) p.push({ msg: `${accNo.length} accessory item(s) without photo`, tab: 'accessories' });
-    if (!d.photos.some((x) => x.kind === 'storefront')) p.push({ msg: 'Storefront photo not taken (top of the page)', tab: 'tractors' });
+    if (accNo.length) p.push({ msg: tr('{n} accessory item(s) without photo', { n: accNo.length }), tab: 'accessories' });
+    if (!d.photos.some((x) => x.kind === 'storefront')) p.push({ msg: tr('Storefront photo not taken (top of the page)'), tab: 'tractors' });
     const fac = d.facility.filter((f) => facilityProblem(f, d.photos.filter((x) => x.facility_id === f.id).length));
-    if (fac.length) p.push({ msg: `${fac.length} facility area(s) not complete`, tab: 'facility' });
+    if (fac.length) p.push({ msg: tr('{n} facility area(s) not complete', { n: fac.length }), tab: 'facility' });
     return p;
-  }, [d]);
+  }, [d, tr]);
 
   async function saveSig(who: 'auditor' | 'manager', png: Blob) {
     setSigBusy(who);
@@ -938,17 +945,17 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
   return (
     <div className="space-y-4">
       <Card className="p-4 text-sm">
-        <h3 className="mb-2 font-semibold">Summary</h3>
+        <h3 className="mb-2 font-semibold">{tr('Summary')}</h3>
         <div className="grid grid-cols-2 gap-1">
-          <span>Verified</span>
+          <span>{tr('Verified')}</span>
           <span className="text-right font-semibold">{inv.filter((t) => t.status === 'verified').length}</span>
-          <span>Chassis mismatch</span>
+          <span>{tr('Chassis mismatch')}</span>
           <span className="text-right font-semibold">{inv.filter((t) => t.status === 'mismatch').length}</span>
-          <span>Not found (short)</span>
+          <span>{tr('Not found (short)')}</span>
           <span className="text-right font-semibold">{inv.filter((t) => t.status === 'not_found').length}</span>
-          <span>Extra</span>
+          <span>{tr('Extra')}</span>
           <span className="text-right font-semibold">{d.tractors.filter((t) => t.source === 'extra').length}</span>
-          <span>Accessory items</span>
+          <span>{tr('Accessory items')}</span>
           <span className="text-right font-semibold">{d.accessories.length}</span>
         </div>
         {problems.length > 0 && (
@@ -961,25 +968,25 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
           </div>
         )}
       </Card>
-      <Field label="General remarks (optional)">
+      <Field label={tr('General remarks (optional)')}>
         <textarea className={inputCls} rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
       </Field>
       <Card className="space-y-2 p-4">
-        <h3 className="font-semibold">Auditor signature</h3>
+        <h3 className="font-semibold">{tr('Auditor signature')}</h3>
         <SignaturePad onSave={(b) => saveSig('auditor', b)} saved={v.has_auditor_signature} busy={sigBusy === 'auditor'} />
       </Card>
       <Card className="space-y-3 p-4">
-        <h3 className="font-semibold">Outlet manager</h3>
-        <Field label="Manager's name *">
+        <h3 className="font-semibold">{tr('Outlet manager')}</h3>
+        <Field label={tr("Manager's name *")}>
           <input className={inputCls} value={manager} onChange={(e) => setManager(e.target.value)} />
         </Field>
         <SignaturePad onSave={(b) => saveSig('manager', b)} saved={v.has_manager_signature} busy={sigBusy === 'manager'} />
       </Card>
       <ErrorBox error={error?.msg} problems={error?.problems} />
       <Button size="lg" onClick={submit} busy={busy} disabled={problems.length > 0 || !manager.trim() || !v.has_auditor_signature || !v.has_manager_signature}>
-        Submit audit and check out
+        {tr('Submit audit and check out')}
       </Button>
-      <p className="text-center text-xs text-slate-500">After submitting you cannot edit unless the office sends it back.</p>
+      <p className="text-center text-xs text-slate-500">{tr('After submitting you cannot edit unless the office sends it back.')}</p>
       <NotDone d={d} />
     </div>
   );

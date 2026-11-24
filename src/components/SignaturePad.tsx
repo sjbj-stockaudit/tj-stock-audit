@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from './ui';
+import { useT } from '../lib/i18n';
 
 /** Finger/stylus signature box. Calls onSave with a PNG blob. */
 export default function SignaturePad({ onSave, saved, busy }: { onSave: (png: Blob) => void; saved: boolean; busy?: boolean }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const [dirty, setDirty] = useState(false);
+  const t = useT();
 
   useEffect(() => {
     const c = canvas.current!;
@@ -64,12 +66,12 @@ export default function SignaturePad({ onSave, saved, busy }: { onSave: (png: Bl
       />
       <div className="mt-2 flex items-center gap-2">
         <Button variant="secondary" size="sm" onClick={clear} disabled={!dirty}>
-          Clear
+          {t('Clear')}
         </Button>
         <Button size="sm" onClick={save} disabled={!dirty} busy={busy}>
-          Save signature
+          {t('Save signature')}
         </Button>
-        {saved && !dirty && <span className="text-sm text-green-700">✓ Saved</span>}
+        {saved && !dirty && <span className="text-sm text-green-700">{t('✓ Saved')}</span>}
       </div>
     </div>
   );

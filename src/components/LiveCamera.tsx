@@ -26,6 +26,7 @@ function takeWarm(facing: string): MediaStream | null {
   return s;
 }
 import { Button } from './ui';
+import { translate, useT } from '../lib/i18n';
 
 /**
  * In-app live camera. Uses the camera stream directly (no file picker), so a saved or
@@ -59,6 +60,7 @@ export default function LiveCamera({
   const [capturing, setCapturing] = useState(false);
   const [torch, setTorch] = useState<boolean | null>(null); // null = phone has no torch control
   const front = facing === 'user';
+  const t = useT();
   // Location, address and map are fetched while the camera opens – not after the shutter.
   const prepared = useRef(prepareStamp());
 
@@ -88,8 +90,8 @@ export default function LiveCamera({
       const name = (e as DOMException).name;
       setError(
         name === 'NotAllowedError'
-          ? 'Camera permission is blocked. Allow camera access for this app in your phone settings, then try again.'
-          : `Could not open the ${front ? 'front' : 'back'} camera on this device.`,
+          ? translate('Camera permission is blocked. Allow camera access for this app in your phone settings, then try again.')
+          : translate(`Could not open the ${front ? 'front' : 'back'} camera on this device.`),
       );
     }
   }
@@ -149,10 +151,10 @@ export default function LiveCamera({
             aria-label={front ? 'Front camera preview' : 'Camera preview'}
           />
         )}
-        {!shot && !ready && !error && <div className="absolute inset-0 flex items-center justify-center text-sm text-white/80">Opening camera…</div>}
+        {!shot && !ready && !error && <div className="absolute inset-0 flex items-center justify-center text-sm text-white/80">{t('Opening camera…')}</div>}
         {!shot && ready && torch !== null && (
           <button onClick={toggleTorch} className="absolute top-2 right-2 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white">
-            {torch ? 'Torch off' : 'Torch on'}
+            {torch ? t('Torch off') : t('Torch on')}
           </button>
         )}
       </div>
@@ -160,14 +162,14 @@ export default function LiveCamera({
         <div className="space-y-2 rounded-lg bg-red-50 p-3 text-sm text-red-800">
           <p>{error}</p>
           <Button variant="secondary" size="sm" onClick={start}>
-            Try again
+            {t('Try again')}
           </Button>
         </div>
       )}
       {shot ? (
         <div className="grid grid-cols-2 gap-2">
           <Button variant="secondary" onClick={retake} disabled={busy}>
-            Retake
+            {t('Retake')}
           </Button>
           <Button onClick={() => onConfirm(shot.photo)} busy={busy}>
             {confirmLabel}
@@ -177,7 +179,7 @@ export default function LiveCamera({
         <div className={onCancel ? 'grid grid-cols-[auto_1fr] gap-2' : ''}>
           {onCancel && (
             <Button variant="secondary" onClick={onCancel}>
-              Cancel
+              {t('Cancel')}
             </Button>
           )}
           <Button size="lg" onClick={capture} disabled={!ready} busy={capturing}>

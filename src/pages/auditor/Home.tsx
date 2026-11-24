@@ -3,10 +3,12 @@ import { api } from '../../lib/api';
 import { fmtDate, mapsLink, todayIST } from '../../lib/format';
 import type { VisitRow } from '../../lib/types';
 import { useAuth } from '../../App';
+import { useT } from '../../lib/i18n';
 import { Card, Empty, ErrorBox, Loading, VisitBadge, useLoad } from '../../components/ui';
 
 export default function AuditorHome() {
   const { me } = useAuth();
+  const t = useT();
   const since = todayIST(-30);
   const visits = useLoad(() => api.get<VisitRow[]>(`/visits?from=${since}`));
   const today = todayIST();
@@ -22,7 +24,7 @@ export default function AuditorHome() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-lg font-semibold">Namaste, {me.name.split(' ')[0]}</h1>
+        <h1 className="text-lg font-semibold">{t('Namaste, {name}', { name: me.name.split(' ')[0] })}</h1>
         <p className="text-sm text-slate-500">{fmtDate(today)}</p>
       </div>
       {active.length > 0 && <Section title="Checked in now" rows={active} cta="Continue audit" highlight />}
@@ -35,11 +37,12 @@ export default function AuditorHome() {
 }
 
 function Section({ title, rows, cta, empty, highlight }: { title: string; rows: VisitRow[]; cta?: string; empty?: string; highlight?: boolean }) {
+  const t = useT();
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold tracking-wide text-slate-500 uppercase">{title}</h2>
+      <h2 className="mb-2 text-sm font-semibold tracking-wide text-slate-500 uppercase">{t(title)}</h2>
       {!rows.length ? (
-        <Empty>{empty}</Empty>
+        <Empty>{empty && t(empty)}</Empty>
       ) : (
         <div className="space-y-2">
           {rows.map((v) => (
@@ -49,8 +52,8 @@ function Section({ title, rows, cta, empty, highlight }: { title: string; rows: 
                   <div>
                     <div className="text-base font-semibold">{v.centre_name}</div>
                     <div className="text-xs text-slate-500">
-                      {fmtDate(v.audit_date)} · {v.inventory_count} tractors
-                      {v.status === 'in_progress' && ` · ${v.inventory_count - v.pending_count} checked`}
+                      {fmtDate(v.audit_date)} · {t('{n} tractors', { n: v.inventory_count })}
+                      {v.status === 'in_progress' && ` · ${t('{n} checked', { n: v.inventory_count - v.pending_count })}`}
                     </div>
                   </div>
                   <VisitBadge status={v.status} />
@@ -60,10 +63,10 @@ function Section({ title, rows, cta, empty, highlight }: { title: string; rows: 
               {cta && (
                 <div className="flex border-t border-slate-100 text-sm">
                   <a href={mapsLink(v.lat, v.lng, v.address, v.centre_name)} target="_blank" rel="noreferrer" className="flex-1 py-2.5 text-center text-slate-600">
-                    Directions
+                    {t('Directions')}
                   </a>
                   <Link to={`/audit/${v.id}`} className="flex-1 border-l border-slate-100 py-2.5 text-center font-medium text-brand-800">
-                    {cta} →
+                    {t(cta)} →
                   </Link>
                 </div>
               )}

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { TRACTOR_STATUS_LABEL, VISIT_STATUS_LABEL, type TractorStatus, type VisitStatus } from '../../shared/domain';
+import { useT } from '../lib/i18n';
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ');
@@ -71,14 +72,15 @@ export const inputCls =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:border-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-100';
 
 export function ErrorBox({ error, problems }: { error?: string | null; problems?: string[] }) {
+  const t = useT();
   if (!error) return null;
   return (
     <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-      {error}
+      {t(error)}
       {!!problems?.length && (
         <ul className="mt-1 list-disc pl-5">
           {problems.map((p) => (
-            <li key={p}>{p}</li>
+            <li key={p}>{t(p)}</li>
           ))}
         </ul>
       )}
@@ -95,7 +97,8 @@ const visitTone: Record<VisitStatus, string> = {
 };
 
 export function VisitBadge({ status }: { status: VisitStatus }) {
-  return <span className={cx('inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', visitTone[status])}>{VISIT_STATUS_LABEL[status]}</span>;
+  const t = useT();
+  return <span className={cx('inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', visitTone[status])}>{t(VISIT_STATUS_LABEL[status])}</span>;
 }
 
 const tractorTone: Record<TractorStatus, string> = {
@@ -107,8 +110,9 @@ const tractorTone: Record<TractorStatus, string> = {
 };
 
 export function TractorBadge({ status }: { status: TractorStatus }) {
+  const t = useT();
   const short: Record<TractorStatus, string> = { ...TRACTOR_STATUS_LABEL, mismatch: 'Mismatch', extra: 'Extra' };
-  return <span className={cx('inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', tractorTone[status])}>{short[status]}</span>;
+  return <span className={cx('inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', tractorTone[status])}>{t(short[status])}</span>;
 }
 
 export function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
@@ -167,9 +171,10 @@ export function Empty({ children }: { children: ReactNode }) {
 }
 
 export function Loading() {
+  const t = useT();
   return (
     <div className="flex items-center gap-2 p-8 text-slate-500">
-      <Spinner /> Loading…
+      <Spinner /> {t('Loading…')}
     </div>
   );
 }
