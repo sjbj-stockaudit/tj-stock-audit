@@ -59,7 +59,7 @@ Pick the month. Shows approved visits, days worked and hours on site per auditor
 - **Download details template** → send to the client → **Import centre details** to update all centres at once. Google Maps links and coordinates are read automatically; empty cells never erase saved details; unknown names are only added if you tick them.
 
 ## People
-- **Auditors:** **Download auditor template** → collect details → **Import auditors**. Each person gets a username (first name + last 4 digits of mobile) and a starting password. **Save the login details immediately** (Excel download, or **Copy message** to send on WhatsApp) – starting passwords are shown only once.
+- **Auditors and planners:** **Download team template** → collect name, mobile, location, role (Auditor / Planner) and optionally a password → **Import team**. Each person gets a username (first name + last 4 digits of mobile) and the password from the sheet, or a generated one. **Save the login details immediately** (Excel download, or **Copy message** to send on WhatsApp) – passwords are shown only once.
 - **Add person** for a single auditor, a client login or another administrator.
 - **Edit** to reset a password or **untick Active** when someone leaves (they are signed out at once; their past audits stay).
 

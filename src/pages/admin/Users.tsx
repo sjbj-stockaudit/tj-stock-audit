@@ -28,11 +28,11 @@ export default function Users() {
         sub="Auditors, client logins and administrators."
         actions={
           <>
-            <Button variant="secondary" onClick={async () => saveBlob(await auditorTemplate(), 'Auditor_Details_Template.xlsx')}>
-              Download auditor template
+            <Button variant="secondary" onClick={async () => saveBlob(await auditorTemplate(), 'Team_Details_Template.xlsx')}>
+              Download team template
             </Button>
             <Button variant="secondary" onClick={() => setImporting(true)}>
-              Import auditors
+              Import team
             </Button>
             <Button onClick={() => setEdit({ role: 'auditor', active: 1 })}>Add person</Button>
           </>
@@ -201,9 +201,9 @@ function ImportAuditors({ users, onClose, onDone }: { users: User[]; onClose: ()
     for (const [i, r] of ready.entries()) {
       setBusy(`Creating ${i + 1} of ${ready.length}…`);
       const username = makeUsername(r.name, r.phone, taken);
-      const password = makePassword();
+      const password = r.password || makePassword();
       try {
-        await api.post('/users', { username, name: r.name, phone: r.phone, role: 'auditor', home_area: r.home_area, id_proof: r.id_proof, password });
+        await api.post('/users', { username, name: r.name, phone: r.phone, role: r.role, home_area: r.home_area, password });
         out.push({ name: r.name, phone: r.phone, home_area: r.home_area, username, password });
       } catch (e) {
         bad.push(`${r.name}: ${(e as Error).message}`);
@@ -225,13 +225,13 @@ function ImportAuditors({ users, onClose, onDone }: { users: User[]; onClose: ()
   }
 
   return (
-    <Modal open onClose={created ? onClose : busy ? () => undefined : onClose} title="Import auditors" wide>
+    <Modal open onClose={created ? onClose : busy ? () => undefined : onClose} title="Import team (auditors & planners)" wide>
       <div className="space-y-4">
         {!created && (
           <>
             <p className="text-sm text-slate-600">
-              Upload the filled <strong>Auditor details</strong> Excel. Each person gets a login (first name + last 4 digits of their mobile) and a
-              starting password. You will see the list before anything is created.
+              Upload the filled <strong>Team details</strong> Excel. Each person gets a login (first name + last 4 digits of their mobile), with the
+              password from the sheet or a generated one. You will see the list before anything is created.
             </p>
             <input
               type="file"
@@ -251,8 +251,8 @@ function ImportAuditors({ users, onClose, onDone }: { users: User[]; onClose: ()
                     <th className="p-2">Name</th>
                     <th className="p-2">Mobile</th>
                     <th className="p-2">Base area</th>
-                    <th className="p-2">ID</th>
-                    <th className="p-2">Phone</th>
+                    <th className="p-2">Role</th>
+                    <th className="p-2">Password</th>
                     <th className="p-2">Status</th>
                   </tr>
                 </thead>
@@ -262,19 +262,16 @@ function ImportAuditors({ users, onClose, onDone }: { users: User[]; onClose: ()
                       <td className="p-2 font-medium">{r.name}</td>
                       <td className="p-2">{r.phone || '—'}</td>
                       <td className="p-2">{r.home_area}</td>
-                      <td className="p-2">{r.id_proof}</td>
-                      <td className={`p-2 ${/iphone|ios/i.test(r.phone_type) ? 'text-amber-700' : ''}`}>{r.phone_type}</td>
+                      <td className="p-2">{r.role === 'planner' ? 'Planner' : 'Auditor'}</td>
+                      <td className="p-2">{r.password ? 'given' : 'will be created'}</td>
                       <td className={`p-2 ${r.problem ? 'text-amber-800' : 'text-green-700'}`}>{r.problem ?? 'Will be created'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {rows.some((r) => /iphone|ios/i.test(r.phone_type)) && (
-              <p className="text-xs text-amber-700">iPhone users can work in Safari, but location is only recorded while the app is open on screen.</p>
-            )}
             <Button onClick={create} busy={!!busy} disabled={!ready.length}>
-              {busy ?? `Create ${ready.length} auditor login(s)`}
+              {busy ?? `Create ${ready.length} login(s)`}
             </Button>
           </>
         )}
