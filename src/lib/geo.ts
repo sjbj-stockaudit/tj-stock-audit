@@ -2,13 +2,17 @@ import { api } from './api';
 
 export type Fix = { lat: number; lng: number; accuracy: number; at: string };
 
+/** Most recent GPS reading from any source (check-in, tracking, camera). */
+let lastFix: Fix | null = null;
+const remember = (f: Fix) => ((lastFix = f), f);
+
 /** One GPS reading. Rejects with a readable message if location is off or denied. */
 export function getPosition(timeoutMs = 20000): Promise<Fix> {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) return reject(new Error('This phone does not support GPS location.'));
     navigator.geolocation.getCurrentPosition(
       (p) =>
-        resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: new Date(p.timestamp).toISOString() }),
+        resolve(remember({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: new Date(p.timestamp).toISOString() })),
       (err) =>
         reject(
           new Error(
@@ -36,6 +40,22 @@ function nativeBackgroundGeolocation(): NativeBgGeo | null {
   const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean; Plugins?: Record<string, unknown> } }).Capacitor;
   if (!cap?.isNativePlatform?.()) return null;
   return (cap.Plugins?.BackgroundGeolocation as NativeBgGeo) ?? null;
+}
+
+/**
+ * A recent location without waiting: the last reading if it is under a minute old,
+ * otherwise a quick new reading (accepting one up to 30 s old). Null if location is unavailable.
+ */
+export async function quickPosition(): Promise<Fix | null> {
+  if (lastFix && Date.now() - Date.parse(lastFix.at) < 60_000) return lastFix;
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) return resolve(lastFix);
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve(remember({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: new Date(p.timestamp).toISOString() })),
+      () => resolve(lastFix),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    );
+  });
 }
 
 const FLUSH_MS = 2 * 60_000; // send at most every 2 minutes
@@ -113,6 +133,7 @@ class Tracker {
   }
 
   private add(fix: Fix) {
+    remember(fix);
     const t = Date.parse(fix.at);
     if (t - this.lastKept < MIN_GAP_MS) return;
     this.lastKept = t;

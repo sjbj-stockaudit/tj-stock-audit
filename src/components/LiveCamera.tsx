@@ -1,5 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
-import { captureVideoFrame, type StampedPhoto } from '../lib/camera';
+import { captureVideoFrame, prepareStamp, type StampedPhoto } from '../lib/camera';
+
+// The camera stays on for a short while after a photo, so the next photo opens instantly.
+const KEEP_WARM_MS = 45_000;
+let warm: { facing: string; stream: MediaStream; timer: number | null } | null = null;
+
+function releaseLater(facing: string, stream: MediaStream) {
+  if (warm && warm.stream !== stream) warm.stream.getTracks().forEach((t) => t.stop());
+  if (warm?.timer) clearTimeout(warm.timer);
+  warm = {
+    facing,
+    stream,
+    timer: window.setTimeout(() => {
+      stream.getTracks().forEach((t) => t.stop());
+      if (warm?.stream === stream) warm = null;
+    }, KEEP_WARM_MS),
+  };
+}
+
+function takeWarm(facing: string): MediaStream | null {
+  if (!warm || warm.facing !== facing || !warm.stream.getVideoTracks().some((t) => t.readyState === 'live')) return null;
+  if (warm.timer) clearTimeout(warm.timer);
+  const s = warm.stream;
+  warm = null;
+  return s;
+}
 import { Button } from './ui';
 
 /**
@@ -34,16 +59,20 @@ export default function LiveCamera({
   const [capturing, setCapturing] = useState(false);
   const [torch, setTorch] = useState<boolean | null>(null); // null = phone has no torch control
   const front = facing === 'user';
+  // Location, address and map are fetched while the camera opens – not after the shutter.
+  const prepared = useRef(prepareStamp());
 
   async function start() {
     setError(null);
     setReady(false);
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('unsupported');
-      const s = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: facing }, width: { ideal: front ? 1280 : 1920 }, height: { ideal: front ? 960 : 1440 } },
-        audio: false,
-      });
+      const s =
+        takeWarm(facing) ??
+        (await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facing }, width: { ideal: front ? 1280 : 1920 }, height: { ideal: front ? 960 : 1440 } },
+          audio: false,
+        }));
       stream.current = s;
       const track = s.getVideoTracks()[0];
       const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & { torch?: boolean; focusMode?: string[] };
@@ -65,8 +94,9 @@ export default function LiveCamera({
     }
   }
 
+  /** Keep the camera warm briefly instead of switching it off (it switches off by itself). */
   function stop() {
-    stream.current?.getTracks().forEach((t) => t.stop());
+    if (stream.current) releaseLater(facing, stream.current);
     stream.current = null;
   }
 
@@ -87,7 +117,7 @@ export default function LiveCamera({
     if (!video.current) return;
     setCapturing(true);
     try {
-      const photo = await captureVideoFrame(video.current, title, place);
+      const photo = await captureVideoFrame(video.current, title, `${place}, India`, prepared.current);
       setShot({ photo, url: URL.createObjectURL(photo.blob) });
       stop();
     } catch (e) {
@@ -100,6 +130,7 @@ export default function LiveCamera({
   function retake() {
     if (shot) URL.revokeObjectURL(shot.url);
     setShot(null);
+    prepared.current = prepareStamp();
     void start();
   }
 

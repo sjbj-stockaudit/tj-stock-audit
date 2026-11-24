@@ -1063,6 +1063,52 @@ app.get('/billing', requireRole('admin'), async (c) => {
   return c.json({ month, visits: results });
 });
 
+// ---------------------------------------------------------------- photo stamp: address and map (OpenStreetMap)
+
+// OpenStreetMap's usage policies ask for an identifying User-Agent and light, cached use.
+const OSM_UA = 'SJBJ-StockAudit/1.0 (+https://tj-stock-audit.sjbjtractor.workers.dev)';
+
+/** Address for a GPS point, used in the photo stamp. Cached per ~10 m for 30 days. */
+app.get('/geo/reverse', requireRole('auditor', 'admin'), async (c) => {
+  const lat = num(c.req.query('lat'));
+  const lng = num(c.req.query('lng'));
+  const lang = c.req.query('lang') === 'hi' ? 'hi' : 'en';
+  if (lat === null || lng === null) return bad(c, 'Missing location.');
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&accept-language=${lang},en&lat=${lat.toFixed(4)}&lon=${lng.toFixed(4)}`;
+  const cache = (caches as unknown as { default: Cache }).default;
+  let res = await cache.match(url);
+  if (!res) {
+    const r = await fetch(url, { headers: { 'User-Agent': OSM_UA, 'Accept-Language': lang } }).catch(() => null);
+    if (!r || !r.ok) return c.json({ place: null, address: null });
+    res = new Response(r.body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=2592000' } });
+    c.executionCtx.waitUntil(cache.put(url, res.clone()));
+  }
+  const j = (await res.json()) as { address?: Record<string, string> };
+  const a = j.address ?? {};
+  const town = a.city || a.town || a.village || a.suburb || a.county || '';
+  const place = [town, a.state, a.country].filter(Boolean).join(', ');
+  const address = [a.road, a.neighbourhood || a.suburb || a.hamlet, town !== (a.suburb ?? '') ? town : '', [a.state, a.postcode].filter(Boolean).join(' '), a.country]
+    .filter((x, i, arr) => x && arr.indexOf(x) === i)
+    .join(', ');
+  return c.json({ place: place || null, address: address || null });
+});
+
+/** Map tile for the stamp's thumbnail (same-origin, so the phone can draw it into the photo). */
+app.get('/geo/tile/:z/:x/:y', requireRole('auditor', 'admin'), async (c) => {
+  const [z, x, y] = ['z', 'x', 'y'].map((k) => Number(c.req.param(k)));
+  if (![z, x, y].every(Number.isInteger) || z < 3 || z > 18) return bad(c, 'Invalid tile.');
+  const url = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+  const cache = (caches as unknown as { default: Cache }).default;
+  let res = await cache.match(url);
+  if (!res) {
+    const r = await fetch(url, { headers: { 'User-Agent': OSM_UA } }).catch(() => null);
+    if (!r || !r.ok) return bad(c, 'Map not available.', 404);
+    res = new Response(r.body, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=604800' } });
+    c.executionCtx.waitUntil(cache.put(url, res.clone()));
+  }
+  return new Response(res.body, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'private, max-age=604800' } });
+});
+
 // ---------------------------------------------------------------- weekly audit plan
 
 const isDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);

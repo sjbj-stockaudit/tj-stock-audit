@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, photoUrl } from '../lib/api';
 import type { StampedPhoto } from '../lib/camera';
 import type { Photo } from '../lib/types';
@@ -36,12 +36,25 @@ export default function PhotoButton({
   required?: boolean;
 }) {
   const [shooting, setShooting] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Photos still uploading (or failed): shown at once so the auditor can carry on
+  const [pending, setPending] = useState<{ key: string; url: string; photo: StampedPhoto; failed: boolean }[]>([]);
+  const latest = useRef(photos);
+  useEffect(() => {
+    latest.current = photos;
+  }, [photos]);
 
-  async function upload({ blob, fix, takenAt }: StampedPhoto) {
-    setBusy(true);
+  function onTaken(photo: StampedPhoto) {
+    setShooting(false);
+    const item = { key: `${Date.now()}-${Math.random()}`, url: URL.createObjectURL(photo.blob), photo, failed: false };
+    setPending((p) => [...p, item]);
+    void upload(item);
+  }
+
+  async function upload(item: { key: string; url: string; photo: StampedPhoto }) {
+    const { blob, fix, takenAt } = item.photo;
     setError(null);
+    setPending((p) => p.map((x) => (x.key === item.key ? { ...x, failed: false } : x)));
     try {
       const form = new FormData();
       form.append('file', blob, 'photo.jpg');
@@ -55,12 +68,13 @@ export default function PhotoButton({
         form.append('lng', String(fix.lng));
       }
       const p = await api.post<Photo>(`/visits/${visitId}/photos`, form);
-      onChange([...photos, p]);
-      setShooting(false);
+      latest.current = [...latest.current, p];
+      onChange(latest.current);
+      setPending((list) => list.filter((x) => x.key !== item.key));
+      URL.revokeObjectURL(item.url);
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
+      setError(`${(e as Error).message} – tap Retry on the photo.`);
+      setPending((list) => list.map((x) => (x.key === item.key ? { ...x, failed: true } : x)));
     }
   }
 
@@ -68,7 +82,8 @@ export default function PhotoButton({
     if (!confirm('Delete this photo?')) return;
     try {
       await api.del(`/photos/${p.id}`);
-      onChange(photos.filter((x) => x.id !== p.id));
+      latest.current = latest.current.filter((x) => x.id !== p.id);
+      onChange(latest.current);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -89,20 +104,34 @@ export default function PhotoButton({
             </button>
           </div>
         ))}
+        {pending.map((x) => (
+          <div key={x.key} className="relative">
+            <img src={x.url} alt={label} className={cx('h-20 w-20 rounded-lg object-cover ring-1', x.failed ? 'ring-red-500' : 'opacity-70 ring-slate-200')} />
+            {x.failed ? (
+              <button onClick={() => void upload(x)} className="absolute inset-x-1 bottom-1 rounded bg-red-600 py-0.5 text-[11px] font-medium text-white">
+                Retry
+              </button>
+            ) : (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-r-transparent" aria-label="Uploading" />
+              </span>
+            )}
+          </div>
+        ))}
         {!shooting && (
           <button
             type="button"
             onClick={() => setShooting(true)}
             className={cx(
               'flex h-20 min-w-20 flex-col items-center justify-center rounded-lg border-2 border-dashed px-2 text-xs font-medium',
-              required && !photos.length ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-300 text-slate-600',
+              required && !photos.length && !pending.length ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-300 text-slate-600',
             )}
           >
             <svg viewBox="0 0 24 24" className="mb-1 h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
               <circle cx="12" cy="13" r="3.5" />
             </svg>
-            {photos.length ? 'Add another' : label}
+            {photos.length || pending.length ? 'Add another' : label}
           </button>
         )}
       </div>
@@ -114,8 +143,7 @@ export default function PhotoButton({
             place={place}
             captureLabel="Take photo"
             confirmLabel="Use photo"
-            busy={busy}
-            onConfirm={upload}
+            onConfirm={onTaken}
             onCancel={() => setShooting(false)}
           />
         </div>
