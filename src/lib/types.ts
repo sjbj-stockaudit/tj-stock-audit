@@ -1,4 +1,4 @@
-import type { PhotoKind, Role, TractorStatus, VisitStatus } from '../../shared/domain';
+import type { FacilityRating, PhotoKind, Role, TractorStatus, VisitStatus } from '../../shared/domain';
 
 export type Me = { id: number; username: string; name: string; role: Role; selfie_required?: boolean };
 
@@ -74,6 +74,7 @@ export type Photo = {
   id: number;
   tractor_id: number | null;
   accessory_id: number | null;
+  facility_id: number | null;
   kind: PhotoKind;
   lat: number | null;
   lng: number | null;
@@ -106,6 +107,9 @@ export type VisitDetail = {
   accessories: Accessory[];
   photos: Photo[];
   pings: { lat: number; lng: number; accuracy: number | null; at: string }[];
+  facility: FacilityCheck[];
 };
+
+export type FacilityCheck = { id: number; area: string; sort_order: number; is_custom: number; rating: FacilityRating | null; remarks: string | null };
 
 export type Settings = { firm_name: string; client_name: string };

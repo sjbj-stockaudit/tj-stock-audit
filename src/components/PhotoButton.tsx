@@ -18,17 +18,19 @@ export default function PhotoButton({
   place,
   tractorId,
   accessoryId,
+  facilityId,
   photos,
   onChange,
   required,
 }: {
   visitId: number;
-  kind: PhotoKind;
+  kind: PhotoKind | 'facility';
   label: string;
   stampTitle: string;
   place: string;
   tractorId?: number;
   accessoryId?: number;
+  facilityId?: number;
   photos: Photo[];
   onChange: (photos: Photo[]) => void;
   required?: boolean;
@@ -47,6 +49,7 @@ export default function PhotoButton({
       form.append('taken_at', takenAt);
       if (tractorId) form.append('tractor_id', String(tractorId));
       if (accessoryId) form.append('accessory_id', String(accessoryId));
+      if (facilityId) form.append('facility_id', String(facilityId));
       if (fix) {
         form.append('lat', String(fix.lat));
         form.append('lng', String(fix.lng));

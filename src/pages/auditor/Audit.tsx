@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, mapsLink } from '../../lib/format';
 import { getPosition, tracker } from '../../lib/geo';
-import type { Accessory, Photo, Tractor, VisitDetail } from '../../lib/types';
-import { compareChassis, distanceMetres, idKey, type TractorStatus } from '../../../shared/domain';
+import type { Accessory, FacilityCheck, Photo, Tractor, VisitDetail } from '../../lib/types';
+import { FACILITY_RATING_LABEL, compareChassis, distanceMetres, facilityProblem, idKey, type FacilityRating, type TractorStatus } from '../../../shared/domain';
 import PhotoButton from '../../components/PhotoButton';
 import SelfieCamera from '../../components/SelfieCamera';
 import type { StampedPhoto } from '../../lib/camera';
@@ -12,7 +12,7 @@ import { useAuth } from '../../App';
 import SignaturePad from '../../components/SignaturePad';
 import { Button, Card, ErrorBox, Field, Loading, Modal, TractorBadge, VisitBadge, cx, inputCls, useLoad } from '../../components/ui';
 
-type Tab = 'tractors' | 'extra' | 'accessories' | 'finish';
+type Tab = 'tractors' | 'extra' | 'accessories' | 'facility' | 'finish';
 
 export default function Audit() {
   const { id } = useParams();
@@ -93,12 +93,13 @@ export default function Audit() {
         </div>
       </div>
       <Storefront d={d} place={place} setD={setD} />
-      <div className="sticky top-[52px] z-[400] -mx-4 mb-4 grid grid-cols-4 border-b border-slate-200 bg-slate-50 px-2 text-sm">
+      <div className="sticky top-[52px] z-[400] -mx-4 mb-4 grid grid-cols-5 border-b border-slate-200 bg-slate-50 px-1 text-[13px]">
         {(
           [
             ['tractors', `Stock (${inv.length})`],
             ['extra', `Extra (${extras.length})`],
             ['accessories', `Accessories (${d.accessories.length})`],
+            ['facility', 'Facility'],
             ['finish', 'Finish'],
           ] as [Tab, string][]
         ).map(([k, l]) => (
@@ -110,6 +111,7 @@ export default function Audit() {
       {tab === 'tractors' && <TractorList d={d} list={inv} place={place} setD={setD} />}
       {tab === 'extra' && <Extras d={d} place={place} setD={setD} />}
       {tab === 'accessories' && <Accessories d={d} place={place} setD={setD} />}
+      {tab === 'facility' && <Facility d={d} place={place} setD={setD} />}
       {tab === 'finish' && <Finish d={d} setD={setD} onSubmitted={load.reload} goTo={setTab} />}
     </>
   );
@@ -633,6 +635,111 @@ function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: 
   );
 }
 
+// ------------------------------------------------------------------ facility condition
+
+const RATING_TONE: Record<FacilityRating, string> = {
+  good: 'bg-green-600 text-white border-green-600',
+  average: 'bg-amber-500 text-white border-amber-500',
+  poor: 'bg-red-600 text-white border-red-600',
+  na: 'bg-slate-500 text-white border-slate-500',
+};
+
+function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
+  const [newArea, setNewArea] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const done = d.facility.filter((f) => !facilityProblem(f, d.photos.filter((p) => p.facility_id === f.id).length)).length;
+
+  async function save(f: FacilityCheck, patch: Partial<FacilityCheck>) {
+    setError(null);
+    setD((x) => ({ ...x, facility: x.facility.map((y) => (y.id === f.id ? { ...y, ...patch } : y)) }));
+    try {
+      await api.patch(`/facility/${f.id}`, patch);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function add() {
+    try {
+      const f = await api.post<FacilityCheck>(`/visits/${d.visit.id}/facility`, { area: newArea });
+      setD((x) => ({ ...x, facility: [...x.facility, f] }));
+      setNewArea('');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function remove(f: FacilityCheck) {
+    if (!confirm(`Remove "${f.area}"?`)) return;
+    await api.del(`/facility/${f.id}`);
+    setD((x) => ({ ...x, facility: x.facility.filter((y) => y.id !== f.id), photos: x.photos.filter((p) => p.facility_id !== f.id) }));
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">
+        How is the stock kept? Rate each area and take at least one photo (racks, arrangement, condition of goods). A remark is required for <b>Poor</b> or{' '}
+        <b>Not applicable</b>. <span className="text-slate-500">{done}/{d.facility.length} done</span>
+      </p>
+      <ErrorBox error={error} />
+      {d.facility.map((f) => {
+        const photos = d.photos.filter((p) => p.facility_id === f.id);
+        const problem = facilityProblem(f, photos.length);
+        return (
+          <Card key={f.id} className={cx('space-y-3 p-3', problem && f.rating && 'border-amber-300')}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-semibold">{f.area}</div>
+              {problem ? <span className="text-xs text-amber-700">{problem}</span> : <span className="text-xs text-green-700">✓ Done</span>}
+            </div>
+            <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label={`Condition of ${f.area}`}>
+              {(Object.keys(FACILITY_RATING_LABEL) as FacilityRating[]).map((r) => (
+                <button
+                  key={r}
+                  role="radio"
+                  aria-checked={f.rating === r}
+                  onClick={() => save(f, { rating: r })}
+                  className={cx('rounded-lg border px-1 py-2 text-xs font-medium', f.rating === r ? RATING_TONE[r] : 'border-slate-300 bg-white text-slate-700')}
+                >
+                  {r === 'na' ? 'N/A' : FACILITY_RATING_LABEL[r]}
+                </button>
+              ))}
+            </div>
+            {f.rating !== 'na' && (
+              <PhotoButton
+                visitId={d.visit.id}
+                kind="facility"
+                label="Photo"
+                stampTitle={`Facility · ${f.area}`}
+                place={place}
+                facilityId={f.id}
+                required
+                photos={photos}
+                onChange={(ps) => setD((x) => replacePhotos(x, (p) => p.facility_id !== f.id, ps))}
+              />
+            )}
+            <input
+              className={inputCls}
+              defaultValue={f.remarks ?? ''}
+              placeholder={f.rating === 'poor' || f.rating === 'na' ? 'Remark (required)' : 'Remark (optional) – e.g. racks labelled, batteries on floor'}
+              onBlur={(e) => e.target.value !== (f.remarks ?? '') && save(f, { remarks: e.target.value })}
+              aria-label={`Remark for ${f.area}`}
+            />
+            {!!f.is_custom && (
+              <button onClick={() => remove(f)} className="text-sm text-red-600">
+                Remove this area
+              </button>
+            )}
+          </Card>
+        );
+      })}
+      <Card className="flex gap-2 p-3">
+        <input className={inputCls} value={newArea} onChange={(e) => setNewArea(e.target.value)} placeholder="Another area, e.g. Workshop" aria-label="New area" />
+        <Button variant="secondary" onClick={add} disabled={!newArea.trim()}>
+          Add
+        </Button>
+      </Card>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ finish: signatures & submit
 
 function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; onSubmitted: () => void; goTo: (t: Tab) => void }) {
@@ -655,6 +762,8 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
     const accNo = d.accessories.filter((a) => !d.photos.some((x) => x.accessory_id === a.id));
     if (accNo.length) p.push({ msg: `${accNo.length} accessory item(s) without photo`, tab: 'accessories' });
     if (!d.photos.some((x) => x.kind === 'storefront')) p.push({ msg: 'Storefront photo not taken (top of the page)', tab: 'tractors' });
+    const fac = d.facility.filter((f) => facilityProblem(f, d.photos.filter((x) => x.facility_id === f.id).length));
+    if (fac.length) p.push({ msg: `${fac.length} facility area(s) not complete`, tab: 'facility' });
     return p;
   }, [d]);
 

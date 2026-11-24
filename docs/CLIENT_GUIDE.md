@@ -38,6 +38,7 @@ Click the centre name. You will see:
 - **Visit details:** auditor, outlet manager, check-in and check-out time, the **storefront photo** and the **auditor's selfie at check-in**
 - **Tractors:** registration and chassis from your list next to what the auditor found, the status, remarks and photos. Click a photo to enlarge it – each photo carries the date, time and GPS location
 - **Accessories** with quantities and photos
+- **Facility condition** – how each area is kept (showroom, yard, accessory racks, battery and tyre storage, cleanliness & safety), rated **Good / Average / Poor**, with photos and remarks
 - **Signatures** of the auditor and the outlet manager
 
 ## 4. Downloading reports

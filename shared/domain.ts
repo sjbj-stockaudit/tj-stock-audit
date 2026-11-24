@@ -126,3 +126,26 @@ export function parseCoords(text: string): { lat: number; lng: number } | null {
 }
 
 export const isShortMapsLink = (text: string) => /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i.test(String(text).trim());
+
+// ------------------------------------------------------------------ facility condition
+
+export type FacilityRating = 'good' | 'average' | 'poor' | 'na';
+export const FACILITY_RATING_LABEL: Record<FacilityRating, string> = { good: 'Good', average: 'Average', poor: 'Poor', na: 'Not applicable' };
+
+/** Areas every audit checks; auditors can add more for a particular centre. */
+export const DEFAULT_FACILITY_AREAS = [
+  'Showroom display area',
+  'Tractor yard / parking',
+  'Accessories & spares racks',
+  'Battery storage',
+  'Tyre storage',
+  'Overall cleanliness & safety (e.g. fire extinguisher)',
+];
+
+/** What is still missing for one checklist row, or null if complete. */
+export function facilityProblem(row: { rating: string | null; remarks: string | null }, photoCount: number): string | null {
+  if (!row.rating) return 'condition not rated';
+  if (row.rating !== 'na' && photoCount === 0) return 'photo missing';
+  if ((row.rating === 'poor' || row.rating === 'na') && !row.remarks?.trim()) return 'remark needed';
+  return null;
+}

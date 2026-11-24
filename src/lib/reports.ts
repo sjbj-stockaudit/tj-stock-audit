@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
-import { TRACTOR_STATUS_LABEL } from '../../shared/domain';
+import { autoTable } from 'jspdf-autotable';
+import { FACILITY_RATING_LABEL, TRACTOR_STATUS_LABEL } from '../../shared/domain';
 import { api, fetchBlob } from './api';
 import { fmtDate, fmtDateTime, safeName } from './format';
 import type { Photo, Settings, Tractor, VisitDetail } from './types';
@@ -179,6 +180,19 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
     row.eachCell((c) => (c.border = thin));
   }
 
+  if (d.facility.length) {
+    ws.addRow([]);
+    styleHeader(ws.addRow(['Facility area', 'Condition', 'Remarks']));
+    ws.mergeCells(ws.rowCount, 3, ws.rowCount, 5);
+    const tone: Record<string, string> = { good: 'FFDCFCE7', average: 'FFFEF3C7', poor: 'FFFEE2E2' };
+    for (const f of d.facility) {
+      const row = ws.addRow([f.area, f.rating ? FACILITY_RATING_LABEL[f.rating] : '', f.remarks ?? '']);
+      ws.mergeCells(row.number, 3, row.number, 5);
+      row.eachCell((c) => ((c.border = thin), (c.alignment = { vertical: 'top', wrapText: true })));
+      if (f.rating && tone[f.rating]) row.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: tone[f.rating] } };
+    }
+  }
+
   ws.addRow([]);
   ws.addRow(['Name of Auditor:', v.auditor_name ?? '', '', 'Name of Manager:', v.manager_name ?? '']);
   ws.addRow(['Check-in:', fmtDateTime(v.checkin_at), '', 'Check-out:', fmtDateTime(v.checkout_at)]);
@@ -248,58 +262,95 @@ function photoPdf(
   pdf.setDrawColor(220).line(M, 30, W - M, 30);
   const T = 19; // everything below the logo band moves down by this much
   pdf.setFont('helvetica', 'bold').setFontSize(15).text('Stock Verification – Photo Report', M, 20 + T);
-  pdf.setFont('helvetica', 'normal').setFontSize(10);
-  const info = [
-    ['Firm', s.client_name],
-    ['Location', `${v.centre_name}, ${v.state}`],
-    ['Date', fmtDate(v.audit_date)],
-    ['Verified by', s.firm_name],
-    ['Auditor', v.auditor_name ?? ''],
-    ['Outlet manager', v.manager_name ?? ''],
-    ['Check-in / out', `${fmtDateTime(v.checkin_at)}  to  ${fmtDateTime(v.checkout_at)}`],
+
+  // Right column: storefront and auditor selfie as proof of the visit
+  const sideW = 44;
+  const storefront = d.photos.find((p) => p.kind === 'storefront');
+  const sideImgs: [Img | null | undefined, string][] = [
+    [storefront ? imgs.get(storefront.id) : null, 'Storefront'],
+    [sigs.selfie, 'Auditor selfie at check-in'],
   ];
-  info.forEach(([k, val], i) => {
-    pdf.setFont('helvetica', 'bold').text(`${k}:`, M, 32 + T + i * 6);
-    pdf.setFont('helvetica', 'normal').text(String(val), M + 32, 32 + T + i * 6, { maxWidth: 110 });
-  });
-  // Auditor's live selfie at check-in, top right of the cover page
-  if (sigs.selfie) {
-    const r = Math.min(45 / sigs.selfie.w, 60 / sigs.selfie.h);
-    const w = sigs.selfie.w * r;
-    pdf.addImage(sigs.selfie.bytes, sigs.selfie.type, W - M - w, 26 + T, w, sigs.selfie.h * r);
-    pdf.setFontSize(7).setTextColor(100).text('Auditor selfie at check-in', W - M - w, 26 + T + sigs.selfie.h * r + 4);
-    pdf.setFontSize(10).setTextColor(0);
+  let sideY = 26 + T;
+  for (const [img, label] of sideImgs) {
+    if (!img) continue;
+    const r = Math.min(sideW / img.w, 42 / img.h);
+    pdf.addImage(img.bytes, img.type, W - M - img.w * r, sideY, img.w * r, img.h * r);
+    pdf.setFontSize(7).setTextColor(100).text(label, W - M - img.w * r, sideY + img.h * r + 3.5);
+    pdf.setTextColor(0);
+    sideY += img.h * r + 8;
   }
-  let y = 32 + T + info.length * 6 + 6;
-  pdf.setFont('helvetica', 'bold').text('Summary', M, y);
-  pdf.setFont('helvetica', 'normal');
-  [
-    `Tractors in inventory: ${sum.inventory}`,
-    `Verified: ${sum.verified}`,
-    `Chassis number mismatch: ${sum.mismatch.length}`,
-    `Short (not found): ${sum.short.length}`,
-    `Extra (not in inventory): ${sum.extra.length}`,
-    `Accessory lines: ${d.accessories.length}`,
-  ].forEach((l, i) => pdf.text(l, M + 4, y + 6 + i * 5));
-  y += 6 + 6 * 5 + 4;
-  const listBlock = (title: string, items: Tractor[]) => {
-    if (!items.length) return;
-    pdf.setFont('helvetica', 'bold').text(title, M, y);
-    pdf.setFont('helvetica', 'normal');
-    for (const t of items) {
-      // Long remarks wrap onto following lines instead of running off the page
-      const lines: string[] = pdf.splitTextToSize(`• ${t.reg_no ?? ''}   Chassis ${t.chassis_no ?? ''}${t.remarks ? `   – ${t.remarks}` : ''}`, W - 2 * M - 8);
-      for (const [i, line] of lines.entries()) {
-        y += 5;
-        if (y > 280) (pdf.addPage(), (y = 20));
-        pdf.text(i ? `   ${line}` : line, M + 4, y);
-      }
+
+  const head = { fillColor: [55, 65, 81] as [number, number, number], textColor: 255, fontStyle: 'bold' as const, fontSize: 8.5 };
+  const base = { theme: 'grid' as const, styles: { fontSize: 8.5, cellPadding: 1.6, lineColor: [203, 213, 225] as [number, number, number], lineWidth: 0.2, textColor: 20 }, headStyles: head, margin: { left: M, right: M } };
+  const after = () => (pdf as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  const section = (title: string, y: number) => {
+    if (y > 262) {
+      pdf.addPage();
+      y = 16;
     }
-    y += 8;
+    pdf.setFont('helvetica', 'bold').setFontSize(10.5).text(title, M, y);
+    return y + 2;
   };
-  listBlock('Short tractors (in inventory, not physically present)', sum.short);
-  listBlock('Extra tractors (physically present, not in inventory)', sum.extra);
-  listBlock('Chassis number mismatches', sum.mismatch);
+
+  // Visit details (left of the photos)
+  autoTable(pdf, {
+    ...base,
+    startY: 26 + T,
+    margin: { left: M, right: M + sideW + 6 },
+    body: [
+      ['Firm', s.client_name],
+      ['Location', `${v.centre_name}, ${v.state}`],
+      ['Audit date', fmtDate(v.audit_date)],
+      ['Verified by', s.firm_name],
+      ['Auditor', v.auditor_name ?? ''],
+      ['Outlet manager', v.manager_name ?? ''],
+      ['Check-in', fmtDateTime(v.checkin_at)],
+      ['Check-out', fmtDateTime(v.checkout_at)],
+      ...(v.general_remarks ? [['General remarks', v.general_remarks]] : []),
+    ],
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 32, fillColor: [241, 245, 249] } },
+  });
+  const facilityPoor = d.facility.filter((f) => f.rating === 'poor').length;
+  let y = section('Summary', Math.max(after(), sideY - 4) + 8);
+  autoTable(pdf, {
+    ...base,
+    startY: y,
+    head: [['In inventory', 'Verified', 'Chassis mismatch', 'Short (not found)', 'Extra', 'Accessory lines', 'Facility areas rated Poor']],
+    body: [[sum.inventory, sum.verified, sum.mismatch.length, sum.short.length, sum.extra.length, d.accessories.length, d.facility.length ? facilityPoor : '–']],
+    styles: { ...base.styles, halign: 'center', fontSize: 10, fontStyle: 'bold' },
+    didParseCell: (h) => {
+      if (h.section !== 'body') return;
+      const val = Number(h.cell.raw);
+      const warn = [2, 3, 6].includes(h.column.index) && val > 0;
+      const info = h.column.index === 4 && val > 0;
+      if (warn) h.cell.styles.textColor = [185, 28, 28];
+      if (info) h.cell.styles.textColor = [29, 78, 216];
+    },
+  });
+  const listTable = (title: string, columns: string[], rows: (string | number | null)[][]) => {
+    if (!rows.length) return;
+    y = section(title, after() + 8);
+    autoTable(pdf, { ...base, startY: y, head: [columns], body: rows.map((r) => r.map((c) => (c ?? '') as string)) });
+  };
+  listTable('Short tractors – in inventory, not physically present', ['Registration No', 'Chassis No', 'Engine No', 'Remarks'], sum.short.map((t) => [t.reg_no, t.chassis_no, t.engine_no, t.remarks]));
+  listTable('Extra tractors – physically present, not in inventory', ['Registration No', 'Chassis No', 'Remarks'], sum.extra.map((t) => [t.reg_no, t.chassis_no, t.remarks]));
+  listTable('Chassis number mismatches', ['Registration No', 'Chassis No (records)', 'Chassis No (found)', 'Remarks'], sum.mismatch.map((t) => [t.reg_no, t.chassis_no, t.verified_chassis, t.remarks]));
+  if (d.facility.length) {
+    y = section('Facility condition', after() + 8);
+    autoTable(pdf, {
+      ...base,
+      startY: y,
+      head: [['Area', 'Condition', 'Remarks', 'Photos']],
+      body: d.facility.map((f) => [f.area, f.rating ? FACILITY_RATING_LABEL[f.rating] : '–', f.remarks ?? '', d.photos.filter((p) => p.facility_id === f.id).length]),
+      columnStyles: { 1: { cellWidth: 26, fontStyle: 'bold' }, 3: { cellWidth: 16, halign: 'center' } },
+      didParseCell: (h) => {
+        if (h.section !== 'body' || h.column.index !== 1) return;
+        const tone: Record<string, [number, number, number]> = { Good: [220, 252, 231], Average: [254, 243, 199], Poor: [254, 226, 226] };
+        if (tone[String(h.cell.raw)]) h.cell.styles.fillColor = tone[String(h.cell.raw)];
+      },
+    });
+  }
+  listTable('Accessories', ['Item', 'Qty', 'Remarks'], d.accessories.map((a) => [a.name, a.qty, a.remarks || 'NA']));
 
   // Photo pages: two photos per page, each captioned with the registration number
   const entries: { caption: string; sub: string; img: Img }[] = [];
@@ -323,6 +374,11 @@ function photoPdf(
     for (const p of d.photos.filter((x) => x.accessory_id === a.id)) {
       const img = imgs.get(p.id);
       if (img) entries.push({ caption: `Accessory – ${a.name} (Qty ${a.qty})`, sub: a.remarks ?? '', img });
+    }
+  for (const f of d.facility)
+    for (const p of d.photos.filter((x) => x.facility_id === f.id)) {
+      const img = imgs.get(p.id);
+      if (img) entries.push({ caption: `Facility – ${f.area}${f.rating ? ` (${FACILITY_RATING_LABEL[f.rating]})` : ''}`, sub: f.remarks ?? '', img });
     }
 
   const slotH = 130;
@@ -391,6 +447,11 @@ async function addCentreToZip(folder: JSZip, d: VisitDetail, s: Settings, onProg
     const img = imgs.get(p.id);
     if (img) folder.file(`photos/${unique(`Storefront.${ext(p)}`)}`, img.bytes);
   }
+  for (const f of d.facility)
+    for (const p of d.photos.filter((x) => x.facility_id === f.id)) {
+      const img = imgs.get(p.id);
+      if (img) folder.file(`photos/facility/${unique(`${safeName(f.area)}.${ext(p)}`)}`, img.bytes);
+    }
   for (const a of d.accessories)
     for (const p of d.photos.filter((x) => x.accessory_id === a.id)) {
       const img = imgs.get(p.id);
@@ -429,14 +490,14 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
   const wb = new ExcelJS.Workbook();
   wb.creator = s.firm_name;
   const summary = wb.addWorksheet('Summary');
-  summary.columns = [12, 18, 14, 18, 12, 12, 12, 12, 12, 20].map((width) => ({ width }));
+  summary.columns = [12, 18, 14, 18, 12, 12, 12, 12, 12, 20, 16].map((width) => ({ width }));
   const logos = await loadLogos();
   summary.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
   addLogoRows(wb, summary, logos, 7.2);
   summary.addRow([`Consolidated stock verification – ${label}`]).font = { bold: true, size: 13 };
   summary.addRow([`${s.client_name} · Verified by ${s.firm_name}`]);
   summary.addRow([]);
-  styleHeader(summary.addRow(['Date', 'Centre', 'State', 'Auditor', 'Inventory', 'Verified', 'Mismatch', 'Short', 'Extra', 'Manager']));
+  styleHeader(summary.addRow(['Date', 'Centre', 'State', 'Auditor', 'Inventory', 'Verified', 'Mismatch', 'Short', 'Extra', 'Manager', 'Facility: areas rated Poor']));
   const all = wb.addWorksheet('Full inventory');
   all.columns = [12, 16, 16, 22, 22, 22, 26, 30].map((width) => ({ width }));
   styleHeader(all.addRow(['Date', 'Centre', 'Registration No (inventory)', 'Chassis No (inventory)', 'RC No (verified)', 'Chassis No (verified)', 'Status', 'Remarks']));
@@ -445,7 +506,19 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
   for (const d of details) {
     const sum = summarise(d);
     summary
-      .addRow([fmtDate(d.visit.audit_date), d.visit.centre_name, d.visit.state, d.visit.auditor_name, sum.inventory, sum.verified, sum.mismatch.length, sum.short.length, sum.extra.length, d.visit.manager_name])
+      .addRow([
+        fmtDate(d.visit.audit_date),
+        d.visit.centre_name,
+        d.visit.state,
+        d.visit.auditor_name,
+        sum.inventory,
+        sum.verified,
+        sum.mismatch.length,
+        sum.short.length,
+        sum.extra.length,
+        d.visit.manager_name,
+        d.facility.length ? d.facility.filter((f) => f.rating === 'poor').length : '',
+      ])
       .eachCell((c) => (c.border = thin));
     for (const t of d.tractors) {
       const row = all.addRow([

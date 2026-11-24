@@ -19,6 +19,7 @@
     "exceljs": "^4.4.0",
     "hono": "^4.9.12",
     "jspdf": "^3.0.3",
+    "jspdf-autotable": "^5.0.8",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
     "react": "^19.1.1",

@@ -92,7 +92,17 @@ For each item (top link, batteries, hood, tyres…):
 
 ---
 
-## 8. Finish and submit (Finish tab)
+## 8. Facility condition (Facility tab)
+Shows the client how the centre keeps its stock. For **each area** (showroom display, tractor yard, accessory racks, battery storage, tyre storage, cleanliness & safety):
+1. Tap the condition: **Good**, **Average**, **Poor** or **N/A** (area not at this centre).
+2. Tap **Photo** → **Take photo** → **Use photo** – show the racks, how goods are arranged and their condition (not needed for N/A).
+3. Write a remark – **required for Poor and N/A** (e.g. "batteries kept on the floor near water").
+
+Each area shows "✓ Done" when complete. Use **Add** at the bottom for any other area worth reporting (e.g. workshop).
+
+---
+
+## 9. Finish and submit (Finish tab)
 1. Check the summary. Any warnings (e.g. "tractor without photo", "storefront photo not taken") are links – tap to fix.
 2. **Auditor signature** – sign with your finger → **Save signature**.
 3. **Outlet manager** – check the manager's name, ask them to sign → **Save signature**.
@@ -102,7 +112,7 @@ After submitting you cannot change the audit unless the office sends it back.
 
 ---
 
-## 9. If the office sends an audit back
+## 10. If the office sends an audit back
 It appears under **Sent back for correction** with a note. Tap **Fix and resubmit →** → **Check in and fix** (no new selfie needed), make the corrections, then submit again from **Finish**.
 
 ---

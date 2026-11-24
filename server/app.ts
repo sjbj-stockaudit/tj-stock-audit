@@ -11,7 +11,18 @@ import {
   startSession,
   verifyPassword,
 } from './auth';
-import { centreKey, distanceMetres, idKey, isShortMapsLink, parseCoords, type PhotoKind, type Role, type TractorStatus } from '../shared/domain';
+import {
+  DEFAULT_FACILITY_AREAS,
+  centreKey,
+  distanceMetres,
+  facilityProblem,
+  idKey,
+  isShortMapsLink,
+  parseCoords,
+  type PhotoKind,
+  type Role,
+  type TractorStatus,
+} from '../shared/domain';
 
 type C = Context<AppEnv>;
 type Visit = {
@@ -460,7 +471,8 @@ app.get('/visits/:id', requireRole(), async (c) => {
   if (v instanceof Response) return v;
   const db = c.env.DB;
   const isAdmin = c.get('user').role === 'admin';
-  const [visit, tractors, accessories, photos, pings] = await db.batch([
+  if (v.status === 'in_progress' || v.status === 'returned') await ensureFacility(c, v.id);
+  const [visit, tractors, accessories, photos, pings, facility] = await db.batch([
     db.prepare(
       `SELECT v.*, ce.name AS centre_name, ce.state, ce.address, ce.lat, ce.lng, ce.radius_m,
               ce.manager_name AS centre_manager, ce.manager_phone AS centre_manager_phone, ce.opening_hours, ce.weekly_off,
@@ -470,8 +482,9 @@ app.get('/visits/:id', requireRole(), async (c) => {
     ).bind(v.id),
     db.prepare("SELECT * FROM tractors WHERE visit_id = ? ORDER BY source = 'extra', sort_order, id").bind(v.id),
     db.prepare('SELECT * FROM accessories WHERE visit_id = ? ORDER BY id').bind(v.id),
-    db.prepare('SELECT id, tractor_id, accessory_id, kind, lat, lng, taken_at FROM photos WHERE visit_id = ? ORDER BY id').bind(v.id),
+    db.prepare('SELECT id, tractor_id, accessory_id, facility_id, kind, lat, lng, taken_at FROM photos WHERE visit_id = ? ORDER BY id').bind(v.id),
     db.prepare(isAdmin ? 'SELECT lat, lng, accuracy, at FROM location_pings WHERE visit_id = ? ORDER BY at' : 'SELECT 1 WHERE 0 AND ?').bind(v.id),
+    db.prepare('SELECT id, area, sort_order, is_custom, rating, remarks FROM facility_checks WHERE visit_id = ? ORDER BY sort_order, id').bind(v.id),
   ]);
   const row = visit.results[0] as Record<string, unknown>;
   if (c.get('user').role === 'client') {
@@ -493,6 +506,7 @@ app.get('/visits/:id', requireRole(), async (c) => {
     accessories: accessories.results,
     photos: photos.results,
     pings: pings.results,
+    facility: facility.results,
   });
 });
 
@@ -521,6 +535,7 @@ app.delete('/visits/:id', requireRole('admin'), async (c) => {
     c.env.DB.prepare('DELETE FROM location_pings WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM photos WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM accessories WHERE visit_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM facility_checks WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM tractors WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM visits WHERE id = ?').bind(id),
   ]);
@@ -557,6 +572,7 @@ app.post('/visits/:id/checkin', requireRole('auditor'), async (c) => {
     await c.env.PHOTOS.put(key, await selfie.arrayBuffer(), { httpMetadata: { contentType: selfie.type } });
     stmts.push(c.env.DB.prepare('UPDATE visits SET checkin_selfie_key = ? WHERE id = ?').bind(key, v.id));
   }
+  await ensureFacility(c, v.id);
   // A returned audit keeps its original check-in so the visit's start time is preserved.
   stmts.push(
     c.env.DB.prepare(
@@ -669,6 +685,65 @@ async function accessoryFor(c: C, id: number) {
   return a;
 }
 
+// ---------------------------------------------------------------- facility condition
+
+/** Create the standard facility checklist for a visit (once). */
+async function ensureFacility(c: C, visitId: number) {
+  const has = await c.env.DB.prepare('SELECT 1 FROM facility_checks WHERE visit_id = ? LIMIT 1').bind(visitId).first();
+  if (has) return;
+  await c.env.DB.batch(
+    DEFAULT_FACILITY_AREAS.map((area, i) =>
+      c.env.DB.prepare('INSERT INTO facility_checks (visit_id, area, sort_order) VALUES (?, ?, ?)').bind(visitId, area, i),
+    ),
+  );
+}
+
+async function facilityFor(c: C, id: number) {
+  const f = await c.env.DB.prepare('SELECT * FROM facility_checks WHERE id = ?').bind(id).first<{ id: number; visit_id: number; is_custom: number }>();
+  if (!f) return bad(c, 'Facility area not found.', 404);
+  const v = await visitFor(c, f.visit_id, 'edit');
+  if (v instanceof Response) return v;
+  return f;
+}
+
+app.patch('/facility/:id', requireRole('auditor', 'admin'), async (c) => {
+  const f = await facilityFor(c, Number(c.req.param('id')));
+  if (f instanceof Response) return f;
+  const b = await c.req.json<Record<string, unknown>>();
+  const sets: string[] = ['updated_at = ?'];
+  const vals: unknown[] = [now()];
+  if ('rating' in b) {
+    if (b.rating !== null && !['good', 'average', 'poor', 'na'].includes(String(b.rating))) return bad(c, 'Invalid condition.');
+    sets.push('rating = ?');
+    vals.push(b.rating);
+  }
+  if ('remarks' in b) (sets.push('remarks = ?'), vals.push(str(b.remarks, 1000)));
+  if ('area' in b && f.is_custom) (sets.push('area = ?'), vals.push(str(b.area, 100) ?? 'Other area'));
+  await c.env.DB.prepare(`UPDATE facility_checks SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, f.id).run();
+  return c.json(await c.env.DB.prepare('SELECT id, area, sort_order, is_custom, rating, remarks FROM facility_checks WHERE id = ?').bind(f.id).first());
+});
+
+app.post('/visits/:id/facility', requireRole('auditor', 'admin'), async (c) => {
+  const v = await visitFor(c, Number(c.req.param('id')), 'edit');
+  if (v instanceof Response) return v;
+  const { area } = await c.req.json<{ area: string }>();
+  const name = str(area, 100);
+  if (!name) return bad(c, 'Enter the area name.');
+  const res = await c.env.DB.prepare('INSERT INTO facility_checks (visit_id, area, sort_order, is_custom) VALUES (?, ?, 1000, 1)').bind(v.id, name).run();
+  return c.json(
+    await c.env.DB.prepare('SELECT id, area, sort_order, is_custom, rating, remarks FROM facility_checks WHERE id = ?').bind(res.meta.last_row_id).first(),
+  );
+});
+
+app.delete('/facility/:id', requireRole('auditor', 'admin'), async (c) => {
+  const f = await facilityFor(c, Number(c.req.param('id')));
+  if (f instanceof Response) return f;
+  if (!f.is_custom) return bad(c, 'Standard areas cannot be removed – mark them "Not applicable" instead.');
+  await deletePhotos(c, 'facility_id = ?', f.id);
+  await c.env.DB.prepare('DELETE FROM facility_checks WHERE id = ?').bind(f.id).run();
+  return c.json({ ok: true });
+});
+
 app.post('/visits/:id/accessories', requireRole('auditor', 'admin'), async (c) => {
   const v = await visitFor(c, Number(c.req.param('id')), 'edit');
   if (v instanceof Response) return v;
@@ -733,10 +808,17 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
   const img = await readImage(c);
   if (img instanceof Response) return img;
   const { form, file } = img;
-  const kind = String(form.get('kind') ?? 'other') as PhotoKind;
-  if (!['chassis', 'tractor', 'accessory', 'storefront', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
+  let kind = String(form.get('kind') ?? 'other') as PhotoKind | 'facility';
+  if (!['chassis', 'tractor', 'accessory', 'storefront', 'facility', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
   const tractorId = num(form.get('tractor_id'));
   const accessoryId = num(form.get('accessory_id'));
+  const facilityId = num(form.get('facility_id'));
+  if (kind === 'facility') {
+    if (!facilityId) return bad(c, 'Choose the facility area for this photo.');
+    const f = await c.env.DB.prepare('SELECT 1 FROM facility_checks WHERE id = ? AND visit_id = ?').bind(facilityId, v.id).first();
+    if (!f) return bad(c, 'Facility area not found in this visit.');
+    kind = 'other'; // facility photos are stored as "other", linked to their area
+  }
   if (tractorId) {
     const t = await c.env.DB.prepare('SELECT 1 FROM tractors WHERE id = ? AND visit_id = ?').bind(tractorId, v.id).first();
     if (!t) return bad(c, 'Tractor not found in this visit.');
@@ -750,13 +832,14 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
   await c.env.PHOTOS.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
   const takenAt = String(form.get('taken_at') ?? '');
   const res = await c.env.DB.prepare(
-    `INSERT INTO photos (visit_id, tractor_id, accessory_id, kind, r2_key, size_bytes, lat, lng, taken_at, uploaded_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO photos (visit_id, tractor_id, accessory_id, facility_id, kind, r2_key, size_bytes, lat, lng, taken_at, uploaded_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       v.id,
       tractorId,
       accessoryId,
+      kind === 'other' ? facilityId : null,
       kind,
       key,
       file.size,
@@ -767,7 +850,7 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
     )
     .run();
   return c.json(
-    await c.env.DB.prepare('SELECT id, tractor_id, accessory_id, kind, lat, lng, taken_at FROM photos WHERE id = ?')
+    await c.env.DB.prepare('SELECT id, tractor_id, accessory_id, facility_id, kind, lat, lng, taken_at FROM photos WHERE id = ?')
       .bind(res.meta.last_row_id)
       .first(),
   );
@@ -838,10 +921,14 @@ async function submissionProblems(c: C, visitId: number, v: Visit): Promise<stri
   const [{ results: tractors }, { results: accessories }, { results: photos }] = await db.batch([
     db.prepare('SELECT id, reg_no, chassis_no, status FROM tractors WHERE visit_id = ?').bind(visitId),
     db.prepare('SELECT id, name FROM accessories WHERE visit_id = ?').bind(visitId),
-    db.prepare('SELECT tractor_id, accessory_id, kind FROM photos WHERE visit_id = ?').bind(visitId),
+    db.prepare('SELECT tractor_id, accessory_id, facility_id, kind FROM photos WHERE visit_id = ?').bind(visitId),
   ]);
+  const { results: facility } = await db
+    .prepare('SELECT id, area, rating, remarks FROM facility_checks WHERE visit_id = ? ORDER BY sort_order, id')
+    .bind(visitId)
+    .all<{ id: number; area: string; rating: string | null; remarks: string | null }>();
   type T = { id: number; reg_no: string | null; chassis_no: string | null; status: string };
-  type P = { tractor_id: number | null; accessory_id: number | null; kind: string };
+  type P = { tractor_id: number | null; accessory_id: number | null; facility_id: number | null; kind: string };
   const ph = photos as P[];
   const problems: string[] = [];
   const pending = (tractors as T[]).filter((t) => t.status === 'pending');
@@ -861,6 +948,10 @@ async function submissionProblems(c: C, visitId: number, v: Visit): Promise<stri
   const accNoPhoto = (accessories as { id: number; name: string }[]).filter((a) => !ph.some((p) => p.accessory_id === a.id));
   if (accNoPhoto.length) problems.push(`Photo missing for accessories: ${accNoPhoto.map((a) => a.name).join(', ')}`);
   if (!ph.some((p) => p.kind === 'storefront')) problems.push('Storefront photo is missing.');
+  const facIssues = facility
+    .map((f) => ({ f, problem: facilityProblem(f, ph.filter((p) => p.facility_id === f.id).length) }))
+    .filter((x) => x.problem);
+  if (facIssues.length) problems.push(`Facility check incomplete: ${facIssues.map((x) => `${x.f.area} (${x.problem})`).join('; ')}`);
   if (!v.auditor_signature_key) problems.push('Auditor signature is missing.');
   if (!v.manager_signature_key) problems.push("Outlet manager's signature is missing.");
   return problems;

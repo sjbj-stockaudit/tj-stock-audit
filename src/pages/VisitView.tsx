@@ -4,7 +4,7 @@ import { api, photoUrl, signatureUrl } from '../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, fmtHours, hoursBetween } from '../lib/format';
 import { downloadCentreExcel, downloadCentreReport, summarise } from '../lib/reports';
 import type { Photo, Tractor, User, VisitDetail } from '../lib/types';
-import { compareChassis } from '../../shared/domain';
+import { FACILITY_RATING_LABEL, compareChassis } from '../../shared/domain';
 import { useAuth } from '../App';
 import MapView, { type MapMarker } from '../components/MapView';
 import { Button, Card, ErrorBox, Field, Loading, Modal, PageTitle, Stat, TractorBadge, VisitBadge, inputCls, useLoad } from '../components/ui';
@@ -267,6 +267,40 @@ export default function VisitView() {
             </Card>
           ))}
         </div>
+      )}
+
+      {d.facility.length > 0 && (
+        <>
+          <h2 className="mt-8 mb-3 font-semibold">Facility condition</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {d.facility.map((f) => (
+              <Card key={f.id} className="p-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-medium">{f.area}</div>
+                  {f.rating && (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
+                        { good: 'bg-green-100 text-green-800', average: 'bg-amber-100 text-amber-800', poor: 'bg-red-100 text-red-800', na: 'bg-slate-100 text-slate-600' }[f.rating]
+                      }`}
+                    >
+                      {FACILITY_RATING_LABEL[f.rating]}
+                    </span>
+                  )}
+                </div>
+                {f.remarks && <div className="mt-1 text-slate-600">{f.remarks}</div>}
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {d.photos
+                    .filter((p) => p.facility_id === f.id)
+                    .map((p) => (
+                      <button key={p.id} onClick={() => setZoom(p)}>
+                        <img src={photoUrl(p.id)} alt={f.area} loading="lazy" className="h-16 w-16 rounded object-cover ring-1 ring-slate-200" />
+                      </button>
+                    ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
 
       {(v.has_auditor_signature || v.has_manager_signature) && (
