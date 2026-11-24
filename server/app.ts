@@ -734,7 +734,7 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
   if (img instanceof Response) return img;
   const { form, file } = img;
   const kind = String(form.get('kind') ?? 'other') as PhotoKind;
-  if (!['chassis', 'tractor', 'accessory', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
+  if (!['chassis', 'tractor', 'accessory', 'storefront', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
   const tractorId = num(form.get('tractor_id'));
   const accessoryId = num(form.get('accessory_id'));
   if (tractorId) {
@@ -860,6 +860,7 @@ async function submissionProblems(c: C, visitId: number, v: Visit): Promise<stri
     );
   const accNoPhoto = (accessories as { id: number; name: string }[]).filter((a) => !ph.some((p) => p.accessory_id === a.id));
   if (accNoPhoto.length) problems.push(`Photo missing for accessories: ${accNoPhoto.map((a) => a.name).join(', ')}`);
+  if (!ph.some((p) => p.kind === 'storefront')) problems.push('Storefront photo is missing.');
   if (!v.auditor_signature_key) problems.push('Auditor signature is missing.');
   if (!v.manager_signature_key) problems.push("Outlet manager's signature is missing.");
   return problems;

@@ -27,7 +27,7 @@ Today's centres, audits completed, auditors on site now, and audits **waiting fo
 
 ## Audits
 Filter by date, status, centre or auditor. Click a centre to open the audit:
-- Counts, visit details, check-in **distance from the centre** (red if outside the allowed radius), the **check-in selfie**, and a map with the GPS trail between check-in and check-out.
+- Counts, visit details, check-in **distance from the centre** (red if outside the allowed radius), the **storefront photo**, the **check-in selfie**, and a map with the GPS trail between check-in and check-out.
 - Every tractor with photos, accessories and signatures.
 - **Approve** – the audit becomes visible to the client and counts in Monthly visits.
 - **Send back to auditor** – write what needs fixing; it returns to the auditor's phone.
@@ -57,7 +57,7 @@ Pick the month. Shows approved visits, days worked and hours on site per auditor
 - **Sign-in selfies** shows every daily sign-in selfie of an auditor.
 
 ## Good to know
-- Auditors sign in with a selfie every day and take a selfie at each check-in. Tractor, chassis and accessory photos can only be taken live in the app.
+- Auditors sign in with a selfie every day and take a selfie at each check-in. A storefront photo is required for every visit. Storefront, tractor, chassis and accessory photos can only be taken live in the app.
 - Changes to the app reach everyone automatically; auditors get them the next time they open the app.
 - iPhone auditors: location is recorded only while the app is open on screen; GPS is still on check-in, every photo and check-out.
 - The **practice copy** (orange banner) is separate – nothing there affects the live app.

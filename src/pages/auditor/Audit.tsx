@@ -92,6 +92,7 @@ export default function Audit() {
           <div className="h-full bg-brand-600 transition-all" style={{ width: `${inv.length ? (checked / inv.length) * 100 : 100}%` }} />
         </div>
       </div>
+      <Storefront d={d} place={place} setD={setD} />
       <div className="sticky top-[52px] z-[400] -mx-4 mb-4 grid grid-cols-4 border-b border-slate-200 bg-slate-50 px-2 text-sm">
         {(
           [
@@ -233,6 +234,33 @@ function CheckIn({ d, onDone }: { d: VisitDetail; onDone: () => void }) {
         </div>
       </Card>
     </div>
+  );
+}
+
+// ------------------------------------------------------------------ storefront
+
+/** Mandatory photo of the showroom front (with the board visible), once per visit. */
+function Storefront({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
+  const photos = d.photos.filter((p) => p.kind === 'storefront');
+  const done = photos.length > 0;
+  return (
+    <Card className={cx('mb-4 p-3', !done && 'border-amber-300 bg-amber-50')}>
+      <div className="mb-2 flex items-center justify-between">
+        <div className="text-sm font-semibold">Storefront photo *</div>
+        {done ? <span className="text-xs text-green-700">✓ Taken</span> : <span className="text-xs text-amber-800">Required</span>}
+      </div>
+      {!done && <p className="mb-2 text-xs text-amber-900">Stand outside and take the whole showroom front with the Tractor Junction board visible.</p>}
+      <PhotoButton
+        visitId={d.visit.id}
+        kind="storefront"
+        label="Storefront photo"
+        stampTitle={`Storefront · ${d.visit.centre_name}`}
+        place={place}
+        photos={photos}
+        required
+        onChange={(ps) => setD((x) => replacePhotos(x, (p) => p.kind !== 'storefront', ps))}
+      />
+    </Card>
   );
 }
 
@@ -626,6 +654,7 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
     if (noTractor.length) p.push({ msg: `${noTractor.length} tractor(s) without tractor photo`, tab: noTractor.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
     const accNo = d.accessories.filter((a) => !d.photos.some((x) => x.accessory_id === a.id));
     if (accNo.length) p.push({ msg: `${accNo.length} accessory item(s) without photo`, tab: 'accessories' });
+    if (!d.photos.some((x) => x.kind === 'storefront')) p.push({ msg: 'Storefront photo not taken (top of the page)', tab: 'tractors' });
     return p;
   }, [d]);
 

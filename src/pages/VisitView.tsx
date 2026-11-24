@@ -165,12 +165,26 @@ export default function VisitView() {
               </>
             )}
           </dl>
-          {v.has_checkin_selfie && (
-            <div className="mt-3">
-              <div className="mb-1 text-slate-500">Auditor selfie at check-in</div>
-              <a href={`/api/visits/${v.id}/checkin-selfie`} target="_blank" rel="noreferrer">
-                <img src={`/api/visits/${v.id}/checkin-selfie`} alt="Auditor selfie at check-in" className="h-40 rounded-lg object-cover ring-1 ring-slate-200" />
-              </a>
+          {(v.has_checkin_selfie || d.photos.some((p) => p.kind === 'storefront')) && (
+            <div className="mt-3 flex flex-wrap gap-3">
+              {d.photos
+                .filter((p) => p.kind === 'storefront')
+                .map((p) => (
+                  <div key={p.id}>
+                    <div className="mb-1 text-slate-500">Storefront</div>
+                    <button onClick={() => setZoom(p)}>
+                      <img src={photoUrl(p.id)} alt="Storefront" className="h-40 rounded-lg object-cover ring-1 ring-slate-200" />
+                    </button>
+                  </div>
+                ))}
+              {v.has_checkin_selfie && (
+                <div>
+                  <div className="mb-1 text-slate-500">Auditor selfie at check-in</div>
+                  <a href={`/api/visits/${v.id}/checkin-selfie`} target="_blank" rel="noreferrer">
+                    <img src={`/api/visits/${v.id}/checkin-selfie`} alt="Auditor selfie at check-in" className="h-40 rounded-lg object-cover ring-1 ring-slate-200" />
+                  </a>
+                </div>
+              )}
             </div>
           )}
           {isAdmin && <AdminControls d={d} users={users.data ?? []} busy={busy} act={act} onDeleted={() => navigate('/visits')} />}

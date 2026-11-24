@@ -299,6 +299,10 @@ function photoPdf(
 
   // Photo pages: two photos per page, each captioned with the registration number
   const entries: { caption: string; sub: string; img: Img }[] = [];
+  for (const p of d.photos.filter((x) => x.kind === 'storefront')) {
+    const img = imgs.get(p.id);
+    if (img) entries.push({ caption: `Storefront – ${v.centre_name}`, sub: `Taken: ${fmtDateTime(p.taken_at)}`, img });
+  }
   for (const t of d.tractors) {
     const ps = d.photos.filter((p) => p.tractor_id === t.id).sort((a, b) => (a.kind === 'chassis' ? -1 : b.kind === 'chassis' ? 1 : 0));
     for (const p of ps) {
@@ -379,6 +383,10 @@ async function addCentreToZip(folder: JSZip, d: VisitDetail, s: Settings, onProg
       const img = imgs.get(p.id);
       if (img) folder.file(`photos/${unique(`${safeName(tractorName(t))}${p.kind === 'tractor' ? '_tractor' : ''}.${ext(p)}`)}`, img.bytes);
     }
+  for (const p of d.photos.filter((x) => x.kind === 'storefront')) {
+    const img = imgs.get(p.id);
+    if (img) folder.file(`photos/${unique(`Storefront.${ext(p)}`)}`, img.bytes);
+  }
   for (const a of d.accessories)
     for (const p of d.photos.filter((x) => x.accessory_id === a.id)) {
       const img = imgs.get(p.id);

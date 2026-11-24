@@ -35,7 +35,7 @@ Open the address in **Chrome**, **Edge** or **Safari** and sign in. Tip: bookmar
 ## 3. Viewing one centre's audit
 Click the centre name. You will see:
 - **Counts:** in inventory, verified, short (not found), extra, chassis mismatch
-- **Visit details:** auditor, outlet manager, check-in and check-out time, and the **auditor's selfie at check-in**
+- **Visit details:** auditor, outlet manager, check-in and check-out time, the **storefront photo** and the **auditor's selfie at check-in**
 - **Tractors:** registration and chassis from your list next to what the auditor found, the status, remarks and photos. Click a photo to enlarge it – each photo carries the date, time and GPS location
 - **Accessories** with quantities and photos
 - **Signatures** of the auditor and the outlet manager
@@ -43,7 +43,7 @@ Click the centre name. You will see:
 ## 4. Downloading reports
 On a centre's page:
 - **Excel** – the stock verification sheet for that centre
-- **Download full report** – a zip with the Excel, a PDF of all photos (each captioned by registration number), and the individual photos named by registration number
+- **Download full report** – a zip with the Excel, a PDF of all photos (storefront first, then each tractor captioned by registration number), and the individual photos named by registration number
 
 On the home page, for the whole period:
 - Tick the audits you want (all are ticked by default) → **Download combined report**

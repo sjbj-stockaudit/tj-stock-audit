@@ -55,6 +55,9 @@ Each centre shows the address, the outlet manager's name and phone, and opening 
 
 From check-in until you submit, your location is recorded.
 
+### Storefront photo (required)
+Right after check-in, at the top of the audit page: stand outside and tap **Storefront photo** → **Take photo** → **Use photo**. Get the whole showroom front with the **Tractor Junction board** visible. The box turns from yellow to "✓ Taken". You cannot submit without it.
+
 ---
 
 ## 5. Check every tractor (Stock tab)
@@ -90,7 +93,7 @@ For each item (top link, batteries, hood, tyres…):
 ---
 
 ## 8. Finish and submit (Finish tab)
-1. Check the summary. Any warnings (e.g. "tractor without photo") are links – tap to fix.
+1. Check the summary. Any warnings (e.g. "tractor without photo", "storefront photo not taken") are links – tap to fix.
 2. **Auditor signature** – sign with your finger → **Save signature**.
 3. **Outlet manager** – check the manager's name, ask them to sign → **Save signature**.
 4. Tap **Submit audit and check out**.

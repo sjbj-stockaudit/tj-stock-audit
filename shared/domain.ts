@@ -3,7 +3,7 @@
 export type Role = 'admin' | 'auditor' | 'client';
 export type VisitStatus = 'assigned' | 'in_progress' | 'submitted' | 'approved' | 'returned';
 export type TractorStatus = 'pending' | 'verified' | 'mismatch' | 'not_found' | 'extra';
-export type PhotoKind = 'chassis' | 'tractor' | 'accessory' | 'signature' | 'other';
+export type PhotoKind = 'chassis' | 'tractor' | 'accessory' | 'storefront' | 'signature' | 'other';
 
 /** Wording used in the client's report format. */
 export const TRACTOR_STATUS_LABEL: Record<TractorStatus, string> = {
