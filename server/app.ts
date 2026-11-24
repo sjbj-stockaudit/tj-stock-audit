@@ -1060,6 +1060,14 @@ app.get('/billing', requireRole('admin'), async (c) => {
   return c.json({ month, visits: results });
 });
 
+// Crash reports from the app's safety net, written to the Cloudflare log (Workers → Logs)
+app.post('/client-error', async (c) => {
+  const b = await c.req.json<{ message?: string; stack?: string; url?: string }>().catch(() => ({}) as Record<string, string>);
+  const user = await currentUser(c).catch(() => null);
+  console.error('client-error', JSON.stringify({ user: user?.username, message: String(b.message ?? '').slice(0, 500), url: String(b.url ?? '').slice(0, 300), stack: String(b.stack ?? '').slice(0, 1500) }));
+  return c.json({ ok: true });
+});
+
 app.notFound((c) => c.json({ error: 'Not found.' }, 404));
 
 export default app;

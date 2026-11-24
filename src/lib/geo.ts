@@ -28,8 +28,8 @@ type NativeBgGeo = {
   addWatcher(
     options: Record<string, unknown>,
     cb: (loc?: { latitude: number; longitude: number; accuracy: number; time: number | null }, err?: unknown) => void,
-  ): Promise<string>;
-  removeWatcher(o: { id: string }): Promise<void>;
+  ): Promise<string> | string; // the Android bridge returns the watcher id directly for callback-style methods
+  removeWatcher(o: { id: string }): Promise<void> | void;
 };
 
 function nativeBackgroundGeolocation(): NativeBgGeo | null {
@@ -52,24 +52,47 @@ class Tracker {
     if (this.visitId === visitId) return;
     this.stop();
     this.visitId = visitId;
+    // Tracking must never break the audit screen: any failure falls back to browser GPS.
+    if (!this.startNative()) this.startBrowser();
+    this.timer = window.setInterval(() => this.flush(), FLUSH_MS);
+  }
+
+  /** Android app: keeps tracking with the screen off (shows a notification while active). */
+  private startNative(): boolean {
     const native = nativeBackgroundGeolocation();
-    if (native) {
-      // Android app: keeps tracking with the screen off (shows a notification while active).
+    if (!native) return false;
+    try {
       let id: string | null = null;
-      native
-        .addWatcher(
-          {
-            backgroundMessage: 'Recording your location until you check out.',
-            backgroundTitle: 'Stock audit in progress',
-            requestPermissions: true,
-            stale: false,
-            distanceFilter: 25,
-          },
-          (loc) => loc && this.add({ lat: loc.latitude, lng: loc.longitude, accuracy: loc.accuracy, at: new Date(loc.time ?? Date.now()).toISOString() }),
-        )
-        .then((w) => (id = w));
-      this.stopFn = () => id && native.removeWatcher({ id });
-    } else if (navigator.geolocation) {
+      const ret = native.addWatcher(
+        {
+          backgroundMessage: 'Recording your location until you check out.',
+          backgroundTitle: 'Stock audit in progress',
+          requestPermissions: true,
+          stale: false,
+          distanceFilter: 25,
+        },
+        (loc) => loc && this.add({ lat: loc.latitude, lng: loc.longitude, accuracy: loc.accuracy, at: new Date(loc.time ?? Date.now()).toISOString() }),
+      );
+      // Depending on the bridge, the id comes back directly or as a promise.
+      Promise.resolve(ret)
+        .then((w) => (id = typeof w === 'string' ? w : null))
+        .catch(() => undefined);
+      this.stopFn = () => {
+        try {
+          if (id) void Promise.resolve(native.removeWatcher({ id })).catch(() => undefined);
+        } catch {
+          /* ignore */
+        }
+      };
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Browser: works while the app is open on screen. */
+  private startBrowser() {
+    if (navigator.geolocation) {
       // Browser: works while the app is open on screen.
       const w = navigator.geolocation.watchPosition(
         (p) => this.add({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, at: new Date(p.timestamp).toISOString() }),
@@ -78,7 +101,6 @@ class Tracker {
       );
       this.stopFn = () => navigator.geolocation.clearWatch(w);
     }
-    this.timer = window.setInterval(() => this.flush(), FLUSH_MS);
   }
 
   stop() {
