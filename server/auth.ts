@@ -2,7 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Role } from '../shared/domain';
 
-export type Env = { DB: D1Database; PHOTOS: R2Bucket };
+export type Env = { DB: D1Database; PHOTOS: R2Bucket; APP_ENV?: string };
 export type SessionUser = { id: number; username: string; name: string; role: Role; token: string; selfie_done: number };
 export type AppEnv = { Bindings: Env; Variables: { user: SessionUser } };
 

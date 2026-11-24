@@ -27,6 +27,7 @@ export const useAuth = () => useContext(Ctx);
 export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [setupNeeded, setSetupNeeded] = useState(false);
+  const [practice, setPractice] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -39,6 +40,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    api.get<{ practice?: boolean }>('/setup').then((s) => setPractice(!!s.practice), () => undefined);
     void refresh();
     const onOut = () => setMe(null);
     const onSelfie = () => void refresh();
@@ -56,6 +58,34 @@ export default function App() {
   }, []);
 
   if (me === undefined) return <Loading />;
+  return (
+    <>
+      {practice && <PracticeBanner />}
+      <Main me={me} setupNeeded={setupNeeded} refresh={refresh} logout={logout} />
+    </>
+  );
+}
+
+/** Shown on the practice copy so it can never be mistaken for the live app. */
+function PracticeBanner() {
+  return (
+    <div className="relative z-[900] bg-orange-500 px-3 py-1.5 text-center text-xs font-semibold tracking-wide text-white">
+      PRACTICE COPY – test data only, nothing here reaches the live app or the client
+    </div>
+  );
+}
+
+function Main({
+  me,
+  setupNeeded,
+  refresh,
+  logout,
+}: {
+  me: Me | null;
+  setupNeeded: boolean;
+  refresh: () => Promise<void>;
+  logout: () => Promise<void>;
+}) {
   if (me === null)
     return (
       <Routes>

@@ -59,7 +59,7 @@ async function visitFor(c: C, id: number, mode: 'read' | 'edit'): Promise<Visit 
 
 app.get('/setup', async (c) => {
   const row = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>();
-  return c.json({ needed: !row || row.n === 0 });
+  return c.json({ needed: !row || row.n === 0, practice: c.env.APP_ENV === 'practice' });
 });
 
 app.post('/setup', async (c) => {
