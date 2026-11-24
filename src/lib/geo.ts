@@ -154,3 +154,32 @@ function writeBuffer(b: Buffered[]) {
 }
 
 export const tracker = new Tracker();
+
+// ------------------------------------------------------------------ keep the screen on during an audit
+
+type WakeLockSentinelLike = { release: () => Promise<void> };
+let wakeLock: WakeLockSentinelLike | null = null;
+let wakeWanted = false;
+
+async function requestWake() {
+  try {
+    const wl = (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<WakeLockSentinelLike> } }).wakeLock;
+    if (wakeWanted && wl && document.visibilityState === 'visible') wakeLock = await wl.request('screen');
+  } catch {
+    /* not supported or refused (e.g. battery saver) – the audit still works */
+  }
+}
+const onVisible = () => void requestWake(); // the lock is released when the app goes to the background
+
+/** Stop the phone auto-locking while an audit is open, so location keeps being recorded. */
+export function keepScreenOn(on: boolean) {
+  wakeWanted = on;
+  if (on) {
+    void requestWake();
+    document.addEventListener('visibilitychange', onVisible);
+  } else {
+    document.removeEventListener('visibilitychange', onVisible);
+    void wakeLock?.release().catch(() => undefined);
+    wakeLock = null;
+  }
+}

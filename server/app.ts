@@ -56,6 +56,7 @@ async function visitFor(c: C, id: number, mode: 'read' | 'edit'): Promise<Visit 
   const user = c.get('user');
   const v = await c.env.DB.prepare('SELECT * FROM visits WHERE id = ?').bind(id).first<Visit>();
   if (!v) return bad(c, 'Visit not found.', 404);
+  if (user.role === 'planner') return bad(c, 'Visit not found.', 404);
   if (user.role === 'client') {
     if (v.status !== 'approved' || mode === 'edit') return bad(c, 'Visit not found.', 404);
   } else if (user.role === 'auditor') {
@@ -70,7 +71,7 @@ async function visitFor(c: C, id: number, mode: 'read' | 'edit'): Promise<Visit 
 
 app.get('/setup', async (c) => {
   const row = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM users').first<{ n: number }>();
-  return c.json({ needed: !row || row.n === 0, practice: c.env.APP_ENV === 'practice' });
+  return c.json({ needed: !row || row.n === 0 });
 });
 
 app.post('/setup', async (c) => {
@@ -195,7 +196,7 @@ app.put('/settings', requireRole('admin'), async (c) => {
 
 app.get('/users', requireRole('admin'), async (c) => {
   const { results } = await c.env.DB.prepare(
-    'SELECT id, username, name, phone, role, team, home_area, id_proof, active, created_at FROM users ORDER BY role, name',
+    "SELECT id, username, name, phone, CASE WHEN access = 'planner' THEN 'planner' ELSE role END AS role, home_area, id_proof, active, created_at FROM users ORDER BY role, name",
   ).all();
   return c.json(results);
 });
@@ -205,15 +206,16 @@ app.post('/users', requireRole('admin'), async (c) => {
   const username = str(b.username, 50)?.toLowerCase().replace(/\s+/g, '');
   const name = str(b.name, 100);
   const role = b.role;
-  if (!username || !name || !['admin', 'auditor', 'client'].includes(role)) return bad(c, 'Username, name and role are required.');
+  if (!username || !name || !['admin', 'auditor', 'client', 'planner'].includes(role)) return bad(c, 'Username, name and role are required.');
   if (!b.password || b.password.length < 8) return bad(c, 'The password must be at least 8 characters.');
   const exists = await c.env.DB.prepare('SELECT 1 FROM users WHERE username = ?').bind(username).first();
   if (exists) return bad(c, `The username "${username}" is already taken.`, 409);
   const { hash, salt } = await hashPassword(b.password);
   const res = await c.env.DB.prepare(
-    'INSERT INTO users (username, name, phone, role, team, home_area, id_proof, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO users (username, name, phone, role, access, home_area, id_proof, password_hash, password_salt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
   )
-    .bind(username, name, str(b.phone, 20), role, str(b.team, 100), str(b.home_area, 100), str(b.id_proof, 60), hash, salt)
+    // a planner is stored as a restricted auditor account flagged 'planner'
+    .bind(username, name, str(b.phone, 20), role === 'planner' ? 'auditor' : role, role === 'planner' ? 'planner' : null, str(b.home_area, 100), str(b.id_proof, 60), hash, salt)
     .run();
   return c.json({ id: res.meta.last_row_id });
 });
@@ -223,14 +225,14 @@ app.patch('/users/:id', requireRole('admin'), async (c) => {
   const b = await c.req.json<Record<string, unknown>>();
   const sets: string[] = [];
   const vals: unknown[] = [];
-  for (const k of ['name', 'phone', 'team', 'home_area', 'id_proof'] as const)
+  for (const k of ['name', 'phone', 'home_area', 'id_proof'] as const)
     if (k in b) {
       sets.push(`${k} = ?`);
       vals.push(str(b[k], 100));
     }
-  if ('role' in b && ['admin', 'auditor', 'client'].includes(String(b.role))) {
-    sets.push('role = ?');
-    vals.push(b.role);
+  if ('role' in b && ['admin', 'auditor', 'client', 'planner'].includes(String(b.role))) {
+    sets.push('role = ?', 'access = ?');
+    vals.push(b.role === 'planner' ? 'auditor' : b.role, b.role === 'planner' ? 'planner' : null);
   }
   if ('active' in b) {
     if (id === c.get('user').id && !b.active) return bad(c, 'You cannot deactivate your own account.');
@@ -431,7 +433,7 @@ app.post('/uploads', requireRole('admin'), async (c) => {
 
 // ---------------------------------------------------------------- visits
 
-app.get('/visits', requireRole(), async (c) => {
+app.get('/visits', requireRole('admin', 'auditor', 'client'), async (c) => {
   const user = c.get('user');
   const q = c.req.query();
   const where: string[] = [];
@@ -448,7 +450,7 @@ app.get('/visits', requireRole(), async (c) => {
   if (q.centre_id) (where.push('v.centre_id = ?'), vals.push(Number(q.centre_id)));
   if (q.auditor_id && user.role === 'admin') (where.push('v.auditor_id = ?'), vals.push(Number(q.auditor_id)));
   const { results } = await c.env.DB.prepare(
-    `SELECT v.id, v.audit_date, v.status, v.checkin_at, v.checkout_at, v.submitted_at, v.checkin_distance_m,
+    `SELECT v.id, v.audit_date, v.status, v.outcome, v.outcome_reason, v.checkin_at, v.checkout_at, v.submitted_at, v.checkin_distance_m,
             ce.id AS centre_id, ce.name AS centre_name, ce.state, ce.address, ce.lat, ce.lng,
             u.id AS auditor_id, u.name AS auditor_name,
             (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = v.id AND t.source = 'inventory') AS inventory_count,
@@ -577,7 +579,7 @@ app.post('/visits/:id/checkin', requireRole('auditor'), async (c) => {
   // A returned audit keeps its original check-in so the visit's start time is preserved.
   stmts.push(
     c.env.DB.prepare(
-      `UPDATE visits SET status = 'in_progress',
+      `UPDATE visits SET status = 'in_progress', outcome = NULL, outcome_reason = NULL,
          checkin_at = COALESCE(checkin_at, ?), checkin_lat = COALESCE(checkin_lat, ?), checkin_lng = COALESCE(checkin_lng, ?),
          checkin_accuracy = COALESCE(checkin_accuracy, ?), checkin_distance_m = COALESCE(checkin_distance_m, ?)
        WHERE id = ?`,
@@ -1049,8 +1051,8 @@ app.get('/billing', requireRole('admin'), async (c) => {
   const month = c.req.query('month') ?? now().slice(0, 7);
   if (!/^\d{4}-\d{2}$/.test(month)) return bad(c, 'Choose a month.');
   const { results } = await c.env.DB.prepare(
-    `SELECT v.id AS visit_id, v.audit_date, v.checkin_at, v.checkout_at, v.status, v.checkin_distance_m,
-            ce.name AS centre_name, ce.state, u.id AS auditor_id, u.name AS auditor_name, u.username, u.team, u.phone,
+    `SELECT v.id AS visit_id, v.audit_date, v.checkin_at, v.checkout_at, v.status, v.outcome, v.outcome_reason, v.checkin_distance_m,
+            ce.name AS centre_name, ce.state, u.id AS auditor_id, u.name AS auditor_name, u.username, u.home_area, u.phone,
             (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = v.id) AS tractor_count
      FROM visits v JOIN centres ce ON ce.id = v.centre_id JOIN users u ON u.id = v.auditor_id
      WHERE substr(v.audit_date, 1, 7) = ? AND v.status IN ('approved', 'submitted')
@@ -1059,6 +1061,152 @@ app.get('/billing', requireRole('admin'), async (c) => {
     .bind(month)
     .all();
   return c.json({ month, visits: results });
+});
+
+// ---------------------------------------------------------------- weekly audit plan
+
+const isDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+/** Monday of the week containing the date (YYYY-MM-DD). */
+function weekOf(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+async function weekLocked(c: C, date: string) {
+  return !!(await c.env.DB.prepare('SELECT 1 FROM plan_weeks WHERE week_start = ? AND locked_at IS NOT NULL').bind(weekOf(date)).first());
+}
+
+/** Centres and auditors to plan with (planners cannot see the admin lists). */
+app.get('/plan/options', requireRole('admin', 'planner'), async (c) => {
+  const [centres, auditors] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT id, state, name, address, opening_hours, weekly_off FROM centres WHERE active = 1 ORDER BY state, name'),
+    c.env.DB.prepare("SELECT id, name, phone, home_area FROM users WHERE role = 'auditor' AND access IS NULL AND active = 1 ORDER BY name"),
+  ]);
+  return c.json({ centres: centres.results, auditors: auditors.results });
+});
+
+app.get('/plans', requireRole('admin', 'planner'), async (c) => {
+  const from = c.req.query('from');
+  const to = c.req.query('to');
+  if (!isDate(from) || !isDate(to)) return bad(c, 'Choose the dates.');
+  const [rows, weeks] = await c.env.DB.batch([
+    c.env.DB.prepare(
+      `SELECT p.id, p.plan_date, p.centre_id, ce.name AS centre_name, ce.state, ce.weekly_off, p.auditor_id, u.name AS auditor_name, u.home_area,
+              p.notes, p.updated_at,
+              (SELECT v.status FROM visits v WHERE v.centre_id = p.centre_id AND v.audit_date = p.plan_date ORDER BY v.id DESC LIMIT 1) AS visit_status,
+              (SELECT v.outcome FROM visits v WHERE v.centre_id = p.centre_id AND v.audit_date = p.plan_date ORDER BY v.id DESC LIMIT 1) AS visit_outcome
+       FROM plans p JOIN centres ce ON ce.id = p.centre_id LEFT JOIN users u ON u.id = p.auditor_id
+       WHERE p.plan_date BETWEEN ? AND ? ORDER BY p.plan_date, ce.name`,
+    ).bind(from, to),
+    c.env.DB.prepare(
+      `SELECT w.week_start, w.locked_at, u.name AS locked_by FROM plan_weeks w LEFT JOIN users u ON u.id = w.locked_by
+       WHERE w.week_start BETWEEN ? AND ? AND w.locked_at IS NOT NULL`,
+    ).bind(weekOf(from!), to),
+  ]);
+  return c.json({ rows: rows.results, locked_weeks: weeks.results });
+});
+
+app.post('/plans', requireRole('admin', 'planner'), async (c) => {
+  const b = await c.req.json<{ plan_date: string; centre_id: number; auditor_id?: number | null; notes?: string }>();
+  if (!isDate(b.plan_date)) return bad(c, 'Choose the date.');
+  if (!b.centre_id) return bad(c, 'Choose the centre.');
+  if (c.get('user').role === 'planner' && (await weekLocked(c, b.plan_date)))
+    return bad(c, 'This week has been approved and locked by the office. Ask them to unlock it.', 409);
+  const dup = await c.env.DB.prepare('SELECT id FROM plans WHERE plan_date = ? AND centre_id = ?').bind(b.plan_date, b.centre_id).first();
+  if (dup) return bad(c, 'This centre is already planned on that date.', 409);
+  const res = await c.env.DB.prepare('INSERT INTO plans (plan_date, centre_id, auditor_id, notes, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(b.plan_date, b.centre_id, b.auditor_id || null, str(b.notes, 300), c.get('user').id, now())
+    .run();
+  return c.json({ id: res.meta.last_row_id });
+});
+
+async function planFor(c: C, id: number) {
+  const p = await c.env.DB.prepare('SELECT * FROM plans WHERE id = ?').bind(id).first<{ id: number; plan_date: string; centre_id: number }>();
+  if (!p) return bad(c, 'Plan entry not found.', 404);
+  if (c.get('user').role === 'planner' && (await weekLocked(c, p.plan_date)))
+    return bad(c, 'This week has been approved and locked by the office. Ask them to unlock it.', 409);
+  return p;
+}
+
+app.patch('/plans/:id', requireRole('admin', 'planner'), async (c) => {
+  const p = await planFor(c, Number(c.req.param('id')));
+  if (p instanceof Response) return p;
+  const b = await c.req.json<Record<string, unknown>>();
+  const sets: string[] = ['updated_at = ?'];
+  const vals: unknown[] = [now()];
+  if ('auditor_id' in b) (sets.push('auditor_id = ?'), vals.push(b.auditor_id || null));
+  if ('notes' in b) (sets.push('notes = ?'), vals.push(str(b.notes, 300)));
+  if ('plan_date' in b) {
+    if (!isDate(b.plan_date)) return bad(c, 'Choose the date.');
+    if (c.get('user').role === 'planner' && (await weekLocked(c, String(b.plan_date)))) return bad(c, 'That week is locked.', 409);
+    sets.push('plan_date = ?');
+    vals.push(b.plan_date);
+  }
+  try {
+    await c.env.DB.prepare(`UPDATE plans SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, p.id).run();
+  } catch {
+    return bad(c, 'This centre is already planned on that date.', 409);
+  }
+  return c.json({ ok: true });
+});
+
+app.delete('/plans/:id', requireRole('admin', 'planner'), async (c) => {
+  const p = await planFor(c, Number(c.req.param('id')));
+  if (p instanceof Response) return p;
+  await c.env.DB.prepare('DELETE FROM plans WHERE id = ?').bind(p.id).run();
+  return c.json({ ok: true });
+});
+
+app.post('/plans/week/:week/:action', requireRole('admin'), async (c) => {
+  const week = c.req.param('week');
+  if (!isDate(week)) return bad(c, 'Invalid week.');
+  const start = weekOf(week);
+  if (c.req.param('action') === 'lock')
+    await c.env.DB.prepare(
+      'INSERT INTO plan_weeks (week_start, locked_at, locked_by) VALUES (?, ?, ?) ON CONFLICT(week_start) DO UPDATE SET locked_at = excluded.locked_at, locked_by = excluded.locked_by',
+    )
+      .bind(start, now(), c.get('user').id)
+      .run();
+  else if (c.req.param('action') === 'unlock') await c.env.DB.prepare('UPDATE plan_weeks SET locked_at = NULL WHERE week_start = ?').bind(start).run();
+  else return bad(c, 'Unknown action.');
+  return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------- centre closed / could not audit
+
+app.post('/visits/:id/not-done', requireRole('auditor'), async (c) => {
+  const user = c.get('user');
+  const v = await c.env.DB.prepare('SELECT * FROM visits WHERE id = ?').bind(Number(c.req.param('id'))).first<Visit & { checkin_at: string | null }>();
+  if (!v || v.auditor_id !== user.id) return bad(c, 'This visit is not assigned to you.', 403);
+  if (!['assigned', 'returned', 'in_progress'].includes(v.status)) return bad(c, 'This audit has already been submitted.', 409);
+  const form = await c.req.formData();
+  const reason = str(form.get('reason'), 100);
+  const note = str(form.get('note'), 500);
+  if (!reason) return bad(c, 'Choose the reason.');
+  if (reason === 'Other' && !note) return bad(c, 'Explain what happened.');
+  const photo = imageFrom(form);
+  if (typeof photo === 'string') return bad(c, 'Take a photo of the storefront as proof.');
+  const lat = num(form.get('lat'));
+  const lng = num(form.get('lng'));
+  if (lat === null || lng === null) return bad(c, 'Turn on location (GPS) – your location is needed as proof.');
+  const centre = await c.env.DB.prepare('SELECT lat, lng FROM centres WHERE id = ?').bind(v.centre_id).first<{ lat: number | null; lng: number | null }>();
+  const distance = centre?.lat != null && centre?.lng != null ? Math.round(distanceMetres(lat, lng, centre.lat, centre.lng)) : null;
+  const key = `visits/${v.id}/storefront-${randomToken(8)}.jpg`;
+  await c.env.PHOTOS.put(key, await photo.arrayBuffer(), { httpMetadata: { contentType: photo.type } });
+  const at = now();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO photos (visit_id, kind, r2_key, size_bytes, lat, lng, taken_at, uploaded_by) VALUES (?, 'storefront', ?, ?, ?, ?, ?, ?)`,
+    ).bind(v.id, key, photo.size, lat, lng, at, user.id),
+    c.env.DB.prepare(
+      `UPDATE visits SET status = 'submitted', outcome = 'not_done', outcome_reason = ?, submitted_at = ?,
+         checkin_at = COALESCE(checkin_at, ?), checkin_lat = COALESCE(checkin_lat, ?), checkin_lng = COALESCE(checkin_lng, ?),
+         checkin_distance_m = COALESCE(checkin_distance_m, ?), checkout_at = ?, checkout_lat = ?, checkout_lng = ? WHERE id = ?`,
+    ).bind(note ? `${reason} – ${note}` : reason, at, at, lat, lng, distance, at, lat, lng, v.id),
+    c.env.DB.prepare('INSERT INTO location_pings (visit_id, user_id, lat, lng, at) VALUES (?, ?, ?, ?, ?)').bind(v.id, user.id, lat, lng, at),
+  ]);
+  return c.json({ ok: true });
 });
 
 // Crash reports from the app's safety net, written to the Cloudflare log (Workers → Logs)

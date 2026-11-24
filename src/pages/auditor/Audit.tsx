@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, mapsLink } from '../../lib/format';
-import { getPosition, tracker } from '../../lib/geo';
+import { getPosition, keepScreenOn, tracker } from '../../lib/geo';
 import type { Accessory, FacilityCheck, Photo, Tractor, VisitDetail } from '../../lib/types';
 import { FACILITY_RATING_LABEL, compareChassis, distanceMetres, facilityProblem, idKey, type FacilityRating, type TractorStatus } from '../../../shared/domain';
 import PhotoButton from '../../components/PhotoButton';
 import SelfieCamera from '../../components/SelfieCamera';
+import LiveCamera from '../../components/LiveCamera';
 import type { StampedPhoto } from '../../lib/camera';
 import { useAuth } from '../../App';
 import SignaturePad from '../../components/SignaturePad';
@@ -25,8 +26,11 @@ export default function Audit() {
   // Record location from check-in until check-out
   const status = d?.visit.status;
   useEffect(() => {
-    if (status === 'in_progress') tracker.start(visitId);
-    else if (status) tracker.stop();
+    if (status === 'in_progress') {
+      tracker.start(visitId);
+      keepScreenOn(true);
+    } else if (status) tracker.stop();
+    return () => keepScreenOn(false);
   }, [status, visitId]);
 
   if (!d) return load.error ? <ErrorBox error={load.error} /> : <Loading />;
@@ -50,7 +54,14 @@ export default function Audit() {
     </div>
   );
 
-  if (v.status === 'assigned' || v.status === 'returned') return <>{header}<CheckIn d={d} onDone={load.reload} /></>;
+  if (v.status === 'assigned' || v.status === 'returned')
+    return (
+      <>
+        {header}
+        <CheckIn d={d} onDone={load.reload} />
+        <NotDone d={d} />
+      </>
+    );
 
   if (v.status === 'submitted' || v.status === 'approved')
     return (
@@ -58,7 +69,8 @@ export default function Audit() {
         {header}
         <Card className="p-6 text-center">
           <div className="text-4xl">✅</div>
-          <h2 className="mt-2 font-semibold">Audit submitted</h2>
+          <h2 className="mt-2 font-semibold">{v.outcome === 'not_done' ? 'Reported: audit not carried out' : 'Audit submitted'}</h2>
+          {v.outcome === 'not_done' && <p className="mt-1 text-sm text-slate-600">{v.outcome_reason}</p>}
           <p className="mt-1 text-sm text-slate-600">
             Submitted {fmtDateTime(v.submitted_at)}. Checked out {fmtDateTime(v.checkout_at)}.
           </p>
@@ -740,6 +752,81 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
   );
 }
 
+// ------------------------------------------------------------------ centre closed / cannot audit
+
+const NOT_DONE_REASONS = ['Centre closed', 'Manager / staff not available', 'Centre did not allow the audit', 'Holiday – centre shut for the day', 'Other'];
+
+/** Report that the audit could not be carried out, with a live storefront photo and GPS as proof. */
+function NotDone({ d }: { d: VisitDetail }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const v = d.visit;
+
+  async function send(photo: StampedPhoto) {
+    if (!reason) return setError('Choose the reason first.');
+    if (reason === 'Other' && !note.trim()) return setError('Explain what happened.');
+    setBusy(true);
+    setError(null);
+    try {
+      const fix = photo.fix ?? (await getPosition());
+      const form = new FormData();
+      form.append('file', photo.blob, 'storefront.jpg');
+      form.append('reason', reason);
+      form.append('note', note);
+      form.append('lat', String(fix.lat));
+      form.append('lng', String(fix.lng));
+      await api.post(`/visits/${v.id}/not-done`, form);
+      tracker.stop();
+      navigate('/');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <button onClick={() => setOpen(true)} className="w-full rounded-lg border border-red-200 bg-white py-3 text-sm font-medium text-red-700">
+        Centre closed / can't audit?
+      </button>
+      <Modal open={open} onClose={() => !busy && setOpen(false)} title="Audit could not be carried out">
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            Use this only if you are at {v.centre_name} and the audit cannot be done today. The office will review it.
+          </p>
+          <Field label="Reason *">
+            <select className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)}>
+              <option value="">Choose…</option>
+              {NOT_DONE_REASONS.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label={reason === 'Other' ? 'What happened? *' : 'Details (optional)'}>
+            <textarea className={inputCls} rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. shutter down, manager phone switched off" />
+          </Field>
+          <div className="text-sm font-medium text-slate-700">Photo of the storefront as proof *</div>
+          <LiveCamera
+            facing="environment"
+            title={`Not carried out · ${v.centre_name}`}
+            place={`${v.centre_name}, ${v.state}`}
+            captureLabel="Take photo"
+            confirmLabel="Send report"
+            busy={busy}
+            onConfirm={send}
+          />
+          <ErrorBox error={error} />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ finish: signatures & submit
 
 function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; onSubmitted: () => void; goTo: (t: Tab) => void }) {
@@ -843,6 +930,7 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
         Submit audit and check out
       </Button>
       <p className="text-center text-xs text-slate-500">After submitting you cannot edit unless the office sends it back.</p>
+      <NotDone d={d} />
     </div>
   );
 }

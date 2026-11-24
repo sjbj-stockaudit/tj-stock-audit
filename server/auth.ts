@@ -2,7 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import type { Role } from '../shared/domain';
 
-export type Env = { DB: D1Database; PHOTOS: R2Bucket; APP_ENV?: string };
+export type Env = { DB: D1Database; PHOTOS: R2Bucket };
 export type SessionUser = { id: number; username: string; name: string; role: Role; token: string; selfie_done: number };
 export type AppEnv = { Bindings: Env; Variables: { user: SessionUser } };
 
@@ -38,18 +38,10 @@ export async function verifyPassword(password: string, hash: string, salt: strin
   return diff === 0;
 }
 
-/** Auditors sign in (with a selfie) every day: their session ends at midnight India time. */
-function auditorExpiry(): Date {
-  const IST = 5.5 * 3600_000;
-  const nowIst = Date.now() + IST;
-  let end = Math.ceil(nowIst / 86400_000) * 86400_000 - IST; // next midnight IST, as UTC ms
-  if (end - Date.now() < 6 * 3600_000) end += 86400_000; // signing in late at night lasts until the next night
-  return new Date(end);
-}
-
 export async function startSession(c: Context<AppEnv>, userId: number, role: Role): Promise<void> {
   const token = randomToken();
-  const expires = role === 'auditor' ? auditorExpiry() : new Date(Date.now() + SESSION_DAYS * 86400_000);
+  void role; // all logins last 30 days (the selfie is taken at each check-in instead of at sign-in)
+  const expires = new Date(Date.now() + SESSION_DAYS * 86400_000);
   await c.env.DB.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)')
     .bind(token, userId, expires.toISOString())
     .run();
@@ -67,7 +59,7 @@ export async function currentUser(c: Context<AppEnv>): Promise<SessionUser | nul
   const token = getCookie(c, COOKIE);
   if (!token) return null;
   return c.env.DB.prepare(
-    `SELECT u.id, u.username, u.name, u.role, s.token, (s.selfie_key IS NOT NULL) AS selfie_done
+    `SELECT u.id, u.username, u.name, CASE WHEN u.access = 'planner' THEN 'planner' ELSE u.role END AS role, s.token, 1 AS selfie_done
      FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.token = ? AND s.expires_at > ? AND u.active = 1`,
   )

@@ -21,25 +21,3 @@ migrations_dir = "migrations"
 binding = "PHOTOS"
 bucket_name = "tj-stock-audit-photos"
 
-# ------------------------------------------------------------------ practice copy
-# A separate Worker with its own database and photo storage, for trying things out.
-# Deployed with: npx wrangler deploy --env staging
-[env.staging]
-name = "tj-stock-audit-staging"
-vars = { APP_ENV = "practice" }
-
-[env.staging.assets]
-directory = "./dist"
-binding = "ASSETS"
-not_found_handling = "single-page-application"
-run_worker_first = ["/api/*"]
-
-[[env.staging.d1_databases]]
-binding = "DB"
-database_name = "tj-stock-audit-staging"
-database_id = "cc0b1b4a-df90-4c7c-8d74-a441634eb15b"
-migrations_dir = "migrations"
-
-[[env.staging.r2_buckets]]
-binding = "PHOTOS"
-bucket_name = "tj-stock-audit-photos-staging"

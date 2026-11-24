@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { centreKey } from '../../../shared/domain';
 import { api } from '../../lib/api';
@@ -13,7 +13,9 @@ type Plan = ParsedSheet & {
   matched: 'name' | 'alias' | null;
   remember_alias: boolean;
   auditor_id: number | '';
+  fromPlan?: boolean; // auditor filled in from the weekly plan
 };
+type ScheduleRow = { centre_id: number; centre_name: string; auditor_id: number | null; auditor_name: string | null };
 
 const NEW = -1;
 
@@ -25,6 +27,8 @@ export default function Upload() {
 
   const [file, setFile] = useState<File | null>(null);
   const [date, setDate] = useState(todayIST());
+  // The weekly plan for this date decides who audits which centre
+  const schedule = useLoad(() => api.get<{ rows: ScheduleRow[] }>(`/plans?from=${date}&to=${date}`), [date]);
   const [plans, setPlans] = useState<Plan[] | null>(null);
   const [newState, setNewState] = useState('MP');
   const [busy, setBusy] = useState(false);
@@ -58,6 +62,22 @@ export default function Upload() {
       setError(`Could not read this file: ${(e as Error).message}`);
     }
   }
+
+  useEffect(() => {
+    const rows = schedule.data?.rows;
+    if (!rows || !plans) return;
+    let changed = false;
+    const next = plans.map((p) => {
+      const planned = rows.find((r) => r.centre_id === p.centre_id && r.auditor_id);
+      if (planned && (p.auditor_id === '' || p.fromPlan) && p.auditor_id !== planned.auditor_id) {
+        changed = true;
+        return { ...p, auditor_id: planned.auditor_id!, fromPlan: true };
+      }
+      return p;
+    });
+    if (changed) setPlans(next);
+  }, [schedule.data, plans]);
+  const plannedMissing = (schedule.data?.rows ?? []).filter((r) => !(plans ?? []).some((p) => p.include && p.centre_id === r.centre_id));
 
   const update = (i: number, patch: Partial<Plan>) => setPlans((p) => p!.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const included = useMemo(() => (plans ?? []).filter((p) => p.include), [plans]);
@@ -118,6 +138,12 @@ export default function Upload() {
 
       {plans && (
         <>
+          {plannedMissing.length > 0 && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              Planned for {date.split('-').reverse().join('/')} but not in this file: <strong>{plannedMissing.map((r) => r.centre_name).join(', ')}</strong>. Ask
+              the client for their stock statement, or update the plan.
+            </div>
+          )}
           <div className="mt-6 mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-semibold">
               {included.length} centres · {totalTractors} tractors
@@ -184,19 +210,25 @@ export default function Upload() {
                       </div>
                     )}
                   </div>
-                  <select
-                    className={`${inputCls} w-auto`}
-                    value={p.auditor_id}
-                    onChange={(e) => update(i, { auditor_id: e.target.value ? Number(e.target.value) : '' })}
-                    aria-label={`Auditor for ${p.sheet_name}`}
-                  >
-                    <option value="">Assign auditor…</option>
-                    {auditors.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div>
+                    <select
+                      className={`${inputCls} w-auto`}
+                      value={p.auditor_id}
+                      onChange={(e) => update(i, { auditor_id: e.target.value ? Number(e.target.value) : '', fromPlan: false })}
+                      aria-label={`Auditor for ${p.sheet_name}`}
+                    >
+                      <option value="">Assign auditor…</option>
+                      {auditors.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                    {p.fromPlan && <div className="mt-0.5 text-xs text-green-700">✓ from the weekly plan</div>}
+                    {!p.fromPlan && p.include && schedule.data && !schedule.data.rows.some((r) => r.centre_id === p.centre_id) && (
+                      <div className="mt-0.5 text-xs text-amber-700">Not in this day's plan</div>
+                    )}
+                  </div>
                 </div>
                 {p.warnings.length > 0 && (
                   <details className="mt-2 text-sm text-amber-700">

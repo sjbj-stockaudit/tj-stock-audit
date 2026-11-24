@@ -112,6 +112,13 @@ export default function VisitView() {
           </div>
         </Card>
       )}
+      {v.outcome === 'not_done' && (
+        <Card className="mb-4 border-red-300 bg-red-50 p-4 text-sm text-red-900">
+          <div className="font-semibold">Audit not carried out</div>
+          <div>{v.outcome_reason}</div>
+          <div className="mt-1 text-red-800/80">The auditor reported this from the centre with a storefront photo and GPS (see below). Stock was not checked.</div>
+        </Card>
+      )}
       {v.status === 'returned' && v.review_note && (
         <Card className="mb-4 border-red-200 bg-red-50 p-4 text-sm">
           <span className="font-medium">Sent back to auditor:</span> {v.review_note}

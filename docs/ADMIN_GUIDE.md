@@ -60,5 +60,4 @@ Pick the month. Shows approved visits, days worked and hours on site per auditor
 - Auditors sign in with a selfie every day and take a selfie at each check-in. A storefront photo and a completed facility condition checklist (6 standard areas; photo for each unless N/A; remark for Poor or N/A) are required for every visit. The weekly summary shows how many areas were rated Poor per centre. Storefront, tractor, chassis and accessory photos can only be taken live in the app.
 - Changes to the app reach everyone automatically; auditors get them the next time they open the app.
 - iPhone auditors: location is recorded only while the app is open on screen; GPS is still on check-in, every photo and check-out.
-- The **practice copy** (orange banner) is separate – nothing there affects the live app.
 - Photo storage: about 10 GB free (roughly two years). Archive old weekly reports before then.

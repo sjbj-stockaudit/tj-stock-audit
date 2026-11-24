@@ -8,7 +8,6 @@ export type User = {
   name: string;
   phone: string | null;
   role: Role;
-  team: string | null;
   home_area: string | null;
   id_proof: string | null;
   active: number;
@@ -35,6 +34,8 @@ export type VisitRow = {
   id: number;
   audit_date: string;
   status: VisitStatus;
+  outcome: 'not_done' | null;
+  outcome_reason: string | null;
   checkin_at: string | null;
   checkout_at: string | null;
   submitted_at: string | null;

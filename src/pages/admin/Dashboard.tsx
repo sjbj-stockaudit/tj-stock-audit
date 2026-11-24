@@ -83,6 +83,7 @@ export function VisitTable({ rows, selectable }: { rows: VisitRow[]; selectable?
                   {v.centre_name}
                 </Link>
                 <span className="ml-1 text-xs text-slate-400">{v.state}</span>
+                {v.outcome === 'not_done' && <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700">not carried out</span>}
               </td>
               <td className="px-3 py-2">{v.auditor_name ?? <span className="text-red-600">Not assigned</span>}</td>
               <td className="px-3 py-2">

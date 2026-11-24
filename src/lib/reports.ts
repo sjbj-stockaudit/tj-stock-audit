@@ -85,7 +85,7 @@ export function loadLogos(): Promise<Logos> {
 
 const logoIds = new WeakMap<ExcelJS.Workbook, { client?: number; firm?: number }>();
 /** Reserve rows at the top of a sheet and place both logos: client left, firm right (col = 0-based column of the right edge). */
-function addLogoRows(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, logos: Logos | undefined, rightCol: number) {
+export function addLogoRows(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, logos: Logos | undefined, rightCol: number) {
   for (let i = 0; i < 4; i++) ws.addRow([]).height = 19;
   if (!logos) return;
   let ids = logoIds.get(wb);
@@ -123,6 +123,13 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
   ws.addRow(['Auditor:', v.auditor_name ?? '']);
   for (let r = top.number + 1; r <= top.number + 5; r++) ws.getCell(r, 1).font = { bold: true };
   ws.addRow([]);
+  if (v.outcome === 'not_done') {
+    const n = ws.addRow([`AUDIT NOT CARRIED OUT: ${v.outcome_reason ?? ''} – stock was not checked (storefront photo and GPS recorded).`]);
+    ws.mergeCells(n.number, 1, n.number, 5);
+    n.font = { bold: true, color: { argb: 'FFB91C1C' } };
+    n.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+    ws.addRow([]);
+  }
 
   styleHeader(
     ws.addRow([
@@ -138,7 +145,7 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
       t.source === 'extra' ? '(not in inventory)' : t.chassis_no ?? '',
       t.status === 'not_found' ? '' : t.verified_reg ?? t.reg_no ?? '',
       t.status === 'not_found' ? '' : t.verified_chassis ?? '',
-      TRACTOR_STATUS_LABEL[t.status],
+      v.outcome === 'not_done' && t.status === 'pending' ? 'Not audited' : TRACTOR_STATUS_LABEL[t.status],
       t.remarks || (t.source === 'inventory' && t.status === 'not_found' ? `Listed as ${t.reg_no ?? ''}` : 'NA'),
     ]);
     row.eachCell({ includeEmpty: true }, (c, col) => {
@@ -295,6 +302,9 @@ function photoPdf(
   autoTable(pdf, {
     ...base,
     startY: 26 + T,
+    ...(v.outcome === 'not_done'
+      ? { head: [[{ content: `AUDIT NOT CARRIED OUT – ${v.outcome_reason ?? ''}`, colSpan: 2, styles: { fillColor: [185, 28, 28] as [number, number, number], textColor: 255 } }]] }
+      : {}),
     margin: { left: M, right: M + sideW + 6 },
     body: [
       ['Firm', s.client_name],
@@ -489,14 +499,14 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
   const wb = new ExcelJS.Workbook();
   wb.creator = s.firm_name;
   const summary = wb.addWorksheet('Summary');
-  summary.columns = [12, 18, 14, 18, 12, 12, 12, 12, 12, 20, 16].map((width) => ({ width }));
+  summary.columns = [12, 18, 14, 18, 12, 12, 12, 12, 12, 20, 16, 30].map((width) => ({ width }));
   const logos = await loadLogos();
   summary.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
   addLogoRows(wb, summary, logos, 7.2);
   summary.addRow([`Consolidated stock verification – ${label}`]).font = { bold: true, size: 13 };
   summary.addRow([`${s.client_name} · Verified by ${s.firm_name}`]);
   summary.addRow([]);
-  styleHeader(summary.addRow(['Date', 'Centre', 'State', 'Auditor', 'Inventory', 'Verified', 'Mismatch', 'Short', 'Extra', 'Manager', 'Facility: areas rated Poor']));
+  styleHeader(summary.addRow(['Date', 'Centre', 'State', 'Auditor', 'Inventory', 'Verified', 'Mismatch', 'Short', 'Extra', 'Manager', 'Facility: areas rated Poor', 'Outcome']));
   const all = wb.addWorksheet('Full inventory');
   all.columns = [12, 16, 16, 22, 22, 22, 26, 30].map((width) => ({ width }));
   styleHeader(all.addRow(['Date', 'Centre', 'Registration No (inventory)', 'Chassis No (inventory)', 'RC No (verified)', 'Chassis No (verified)', 'Status', 'Remarks']));
@@ -517,6 +527,7 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
         sum.extra.length,
         d.visit.manager_name,
         d.facility.length ? d.facility.filter((f) => f.rating === 'poor').length : '',
+        d.visit.outcome === 'not_done' ? `Not carried out – ${d.visit.outcome_reason ?? ''}` : 'Audited',
       ])
       .eachCell((c) => (c.border = thin));
     for (const t of d.tractors) {
@@ -527,7 +538,7 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
         t.source === 'extra' ? '' : t.chassis_no,
         t.verified_reg,
         t.verified_chassis,
-        TRACTOR_STATUS_LABEL[t.status],
+        d.visit.outcome === 'not_done' && t.status === 'pending' ? 'Not audited' : TRACTOR_STATUS_LABEL[t.status],
         t.remarks ?? '',
       ]);
       row.eachCell({ includeEmpty: true }, (c) => (c.border = thin));

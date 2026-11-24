@@ -1,6 +1,6 @@
 // Logic shared by the server (Cloudflare Functions) and the browser app.
 
-export type Role = 'admin' | 'auditor' | 'client';
+export type Role = 'admin' | 'auditor' | 'client' | 'planner';
 export type VisitStatus = 'assigned' | 'in_progress' | 'submitted' | 'approved' | 'returned';
 export type TractorStatus = 'pending' | 'verified' | 'mismatch' | 'not_found' | 'extra';
 export type PhotoKind = 'chassis' | 'tractor' | 'accessory' | 'storefront' | 'signature' | 'other';

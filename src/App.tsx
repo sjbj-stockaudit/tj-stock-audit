@@ -17,9 +17,9 @@ const Centres = lazy(() => import('./pages/admin/Centres'));
 const Users = lazy(() => import('./pages/admin/Users'));
 const Billing = lazy(() => import('./pages/admin/Billing'));
 const Reports = lazy(() => import('./pages/Reports'));
+const Plan = lazy(() => import('./pages/Plan'));
 import AuditorHome from './pages/auditor/Home';
 import Audit from './pages/auditor/Audit';
-import SelfieGate from './pages/auditor/SelfieGate';
 
 type AuthCtx = { me: Me; refresh: () => Promise<void>; logout: () => Promise<void> };
 const Ctx = createContext<AuthCtx>(null!);
@@ -28,7 +28,6 @@ export const useAuth = () => useContext(Ctx);
 export default function App() {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
   const [setupNeeded, setSetupNeeded] = useState(false);
-  const [practice, setPractice] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -41,7 +40,6 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    api.get<{ practice?: boolean }>('/setup').then((s) => setPractice(!!s.practice), () => undefined);
     void refresh();
     const onOut = () => setMe(null);
     const onSelfie = () => void refresh();
@@ -59,21 +57,7 @@ export default function App() {
   }, []);
 
   if (me === undefined) return <Splash />;
-  return (
-    <>
-      {practice && <PracticeBanner />}
-      <Main me={me} setupNeeded={setupNeeded} refresh={refresh} logout={logout} />
-    </>
-  );
-}
-
-/** Shown on the practice copy so it can never be mistaken for the live app. */
-function PracticeBanner() {
-  return (
-    <div className="relative z-[900] bg-orange-500 px-3 py-1.5 text-center text-xs font-semibold tracking-wide text-white">
-      PRACTICE COPY – test data only, nothing here reaches the live app or the client
-    </div>
-  );
+  return <Main me={me} setupNeeded={setupNeeded} refresh={refresh} logout={logout} />;
 }
 
 function Main({
@@ -93,8 +77,6 @@ function Main({
         <Route path="*" element={setupNeeded ? <Setup onDone={refresh} /> : <Login onDone={refresh} />} />
       </Routes>
     );
-
-  if (me.role === 'auditor' && me.selfie_required) return <SelfieGate name={me.name} onDone={refresh} onSignOut={logout} />;
 
   return (
     <Ctx.Provider value={{ me, refresh, logout }}>
@@ -139,6 +121,7 @@ function AuditorShell() {
 
 const ADMIN_NAV = [
   ['/', 'Dashboard'],
+  ['/plan', 'Weekly plan'],
   ['/upload', 'Upload stock'],
   ['/visits', 'Audits'],
   ['/live', 'Live map'],
@@ -149,10 +132,11 @@ const ADMIN_NAV = [
 ] as const;
 
 const CLIENT_NAV = [['/', 'Audit reports']] as const;
+const PLANNER_NAV = [['/', 'Weekly plan']] as const;
 
 function OfficeShell() {
   const { me, logout } = useAuth();
-  const nav = me.role === 'admin' ? ADMIN_NAV : CLIENT_NAV;
+  const nav = me.role === 'admin' ? ADMIN_NAV : me.role === 'planner' ? PLANNER_NAV : CLIENT_NAV;
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   return (
@@ -187,7 +171,7 @@ function OfficeShell() {
         </nav>
         <div className="mt-auto border-t border-white/10 p-3 text-sm">
           <div className="font-medium">{me.name}</div>
-          <div className="text-xs text-white/60">{me.role === 'admin' ? 'Administrator' : 'Client access'}</div>
+          <div className="text-xs text-white/60">{me.role === 'admin' ? 'Administrator' : me.role === 'planner' ? 'Planner' : 'Client access'}</div>
           <div className="mt-2 flex gap-2">
             <button onClick={() => (setOpen(false), navigate('/account'))} className="rounded-md bg-white/10 px-2 py-1 text-xs">
               Password
@@ -220,7 +204,10 @@ function OfficeShell() {
                 <Route path="/billing" element={<Billing />} />
                 <Route path="/centres" element={<Centres />} />
                 <Route path="/users" element={<Users />} />
+                <Route path="/plan" element={<Plan />} />
               </>
+            ) : me.role === 'planner' ? (
+              <Route path="/" element={<Plan />} />
             ) : (
               <Route path="/" element={<Reports />} />
             )}
