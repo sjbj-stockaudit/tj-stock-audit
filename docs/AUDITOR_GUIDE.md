@@ -65,28 +65,31 @@ Right after check-in, at the top of the audit page: stand outside and tap **Stor
 
 ---
 
-## 5. Check every tractor (Stock tab)
-Tap a tractor in the list. For each one:
+## 5. Record every tractor you are shown (Tractors tab)
+You do **not** get the stock list. Ask the centre to show you every tractor and record each one:
 
-1. **Photo of the chassis number** – tap **Chassis photo** → **Take photo** → **Use photo** (or **Retake**). Use **Torch on** in dark places. The number must be readable.
-2. **Photo of the whole tractor** – tap **Tractor photo** → **Take photo** → **Use photo**.
-3. **Type the chassis number** exactly as punched on the chassis. The app tells you if it matches the stock list.
-4. Check the **RC / registration number**.
-5. Choose the result:
-   - **✓ Verified** – tractor present, chassis matches
-   - **Mismatch** – tractor present but the chassis number is different (write a remark)
-   - **Not found** – the tractor in the list is not at the centre (no photos needed)
+1. Tap **+ Record a tractor**.
+2. Type the **chassis number** exactly as punched on the tractor, the **number plate** (leave empty if there is none), the **engine number** and the **meter reading** (choose **KM** or **Hours**, as shown on the tractor's meter).
+3. Tap **Save, then take photos**, then take all 3 photos: **Chassis photo**, **Tractor photo** and **Meter photo**. The numbers must be readable – use **Torch on** in dark places.
 
-The next tractor opens automatically. Use the search box to find a tractor by registration, chassis or engine number.
+If the app says **"Please check the chassis number on the tractor again and type it once more"**, look at the chassis plate again carefully and type the number again (watch 0/O, 1/I, 5/S, 8/B). Type exactly what you see.
+
+Recorded a tractor by mistake? Tap **Remove** on it.
 
 > Photos can only be taken live in the app – gallery photos cannot be used. Every photo is stamped like a GPS camera photo: a small map with a pin, the address, latitude/longitude, day, date and time. You can take the next photo straight away – photos upload in the background (a spinner shows on the thumbnail; if one says **Retry**, tap it).
 
 ---
 
-## 6. Extra tractors (Extra tab)
-For tractors at the centre that are **not in the stock list**:
-1. Enter the **Registration no.** and **Chassis no.** → **Add, then take photos**.
-2. Take the **chassis photo** and the **tractor photo**.
+## 6. Done counting – tractors kept somewhere else
+When every tractor shown at the centre is recorded, open the **Finish** tab and tap **Done counting**.
+
+- The app tells you **how many** tractors in the records were **not shown** to you (not which ones).
+- Ask the manager where they are. If they are at another yard or a service centre, **go there today** with the centre staff:
+  1. On the Finish tab tap **+ Check in at another place**, enter the name of the place, take a photo of it → **Check in here**.
+  2. Record each tractor there with **+ Record a tractor** (it is marked at that place automatically).
+  3. Come back to **Finish** and tap **Check again**.
+- **Everything must be finished the same day.** From the next day no tractors can be added; anything not shown is reported as short.
+- If some tractors are still not shown, write the **manager's explanation** (e.g. "1 sold on Monday, invoice pending").
 
 ---
 
@@ -107,11 +110,12 @@ Each area shows "✓ Done" when complete. Use **Add** at the bottom for any othe
 
 ---
 
-## 9. Finish and submit (Finish tab)
-1. Check the summary. Any warnings (e.g. "tractor without photo", "storefront photo not taken") are links – tap to fix.
-2. **Auditor signature** – sign with your finger → **Save signature**.
-3. **Outlet manager** – check the manager's name, ask them to sign → **Save signature**.
-4. Tap **Submit audit and check out**.
+## 9. Manager's declaration and submit (Finish tab)
+1. Check the warnings (e.g. "tractor without meter photo", "storefront photo not taken") – they are links, tap to fix.
+2. **Manager's declaration** – show the screen to the manager. It says all tractors and accessories were shown, lists the other places and how many were not shown. Check the manager's **name** and **mobile**, and ask them to **sign** → **Save signature**. No printout is needed.
+3. Tap **Send the manager a copy on WhatsApp** so the manager has the summary they signed.
+4. **Auditor signature** – sign → **Save signature**.
+5. Tap **Submit audit and check out**.
 
 After submitting you cannot change the audit unless the office sends it back.
 

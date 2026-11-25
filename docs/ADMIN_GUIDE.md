@@ -42,6 +42,16 @@ Filter by date, status, centre or auditor. Click a centre to open the audit:
 
 Statuses: Assigned → In progress → Awaiting review → Approved (or Returned to auditor).
 
+**Blind count (how matching works):** auditors never see the stock list or its count. They record every tractor shown (chassis, plate, engine, meter reading, 3 photos) and the app matches by **chassis number**:
+- Chassis matches a stock tractor → **Verified**.
+- Not in the records → **Extra**. If the plate belongs to a stock tractor but the chassis is different, it counts as **short + extra** and is flagged ("Plate … is in records with a different chassis").
+- A chassis that looks like a stock one (typo?) must be typed twice; if the auditor confirms it, it becomes an extra flagged "Chassis close to …" – check the chassis photo.
+- After **Done counting** the auditor only sees *how many* are not shown. Off-site places (yard, service centre) are checked in with GPS and a photo and shown with their distance from the centre. Everything closes the same day; whatever was not shown is **Short**, with the manager's explanation. The **first count** (before any off-site visits) is kept as evidence.
+
+**Meter readings:** each tractor's meter (KM or hours) is recorded weekly. The audit and reports show the previous reading, the difference, and a red flag when it moved by more than 1 or went down. The first reading for a tractor is its starting point.
+
+**Manager's declaration:** the manager signs an on-screen declaration (count, other places, number not shown) – no printout needed – and can be sent a copy on WhatsApp.
+
 **Centre closed / not carried out:** if the auditor reports that the audit could not be done, the audit shows a red "Audit not carried out" banner with the reason, storefront photo and GPS. Approve it (it appears in reports as not carried out) or send it back so the audit is done. In Monthly visits these are counted in a separate **Centre closed** column, so you decide how to bill them.
 
 ## Live map

@@ -67,6 +67,43 @@ export type Tractor = {
   verified_chassis: string | null;
   status: TractorStatus;
   remarks: string | null;
+  seen_engine?: string | null;
+  meter_reading?: number | null;
+  meter_unit?: 'km' | 'hours' | null;
+  location_id?: number | null;
+  seen_at?: string | null;
+  related_id?: number | null;
+  related_reason?: 'near_chassis' | 'same_plate' | null;
+  retyped?: number | null;
+  prev_meter?: number | null;
+  prev_meter_unit?: string | null;
+  prev_date?: string | null;
+  prev_centre?: string | null;
+  meter_diff?: number | null;
+  meter_flag?: 'moved' | 'went_down' | 'unit_changed' | null;
+};
+
+/** What an auditor sees of a tractor they recorded (the stock list itself stays hidden). */
+export type SeenTractor = {
+  id: number;
+  reg_no: string | null;
+  chassis_no: string | null;
+  engine_no: string | null;
+  meter_reading: number | null;
+  meter_unit: 'km' | 'hours' | null;
+  location_id: number | null;
+  seen_at: string | null;
+};
+
+export type VisitLocation = {
+  id: number;
+  name: string;
+  kind: string | null;
+  address: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  distance_m: number | null;
+  arrived_at: string;
 };
 
 export type Accessory = { id: number; visit_id: number; name: string; qty: number; remarks: string | null };
@@ -76,6 +113,7 @@ export type Photo = {
   tractor_id: number | null;
   accessory_id: number | null;
   facility_id: number | null;
+  location_id?: number | null;
   kind: PhotoKind;
   lat: number | null;
   lng: number | null;
@@ -103,8 +141,14 @@ export type VisitDetail = {
     centre_manager_phone: string | null;
     opening_hours: string | null;
     weekly_off: string | null;
+    count_done_at?: string | null;
+    pending_at_count?: number | null;
+    missing_explanation?: string | null;
+    manager_phone?: string | null;
+    same_day_open?: boolean;
   };
   tractors: Tractor[];
+  locations: VisitLocation[];
   accessories: Accessory[];
   photos: Photo[];
   pings: { lat: number; lng: number; accuracy: number | null; at: string }[];

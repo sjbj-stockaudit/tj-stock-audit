@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, mapsLink } from '../../lib/format';
 import { getPosition, isAndroidApp, keepScreenOn, openAppSettings, tracker } from '../../lib/geo';
-import type { Accessory, FacilityCheck, Photo, Tractor, VisitDetail } from '../../lib/types';
-import { FACILITY_RATING_LABEL, compareChassis, distanceMetres, facilityProblem, idKey, type FacilityRating, type TractorStatus } from '../../../shared/domain';
+import type { Accessory, FacilityCheck, Photo, SeenTractor, Tractor, VisitDetail, VisitLocation } from '../../lib/types';
+import { FACILITY_RATING_LABEL, distanceMetres, facilityProblem, type FacilityRating } from '../../../shared/domain';
 import PhotoButton from '../../components/PhotoButton';
 import SelfieCamera from '../../components/SelfieCamera';
 import LiveCamera from '../../components/LiveCamera';
@@ -12,9 +12,9 @@ import type { StampedPhoto } from '../../lib/camera';
 import { useAuth } from '../../App';
 import SignaturePad from '../../components/SignaturePad';
 import { useT } from '../../lib/i18n';
-import { Button, Card, ErrorBox, Field, Loading, Modal, TractorBadge, VisitBadge, cx, inputCls, useLoad } from '../../components/ui';
+import { Button, Card, ErrorBox, Field, Loading, Modal, VisitBadge, cx, inputCls, useLoad } from '../../components/ui';
 
-type Tab = 'tractors' | 'extra' | 'accessories' | 'facility' | 'finish';
+type Tab = 'tractors' | 'accessories' | 'facility' | 'finish';
 
 export default function Audit() {
   const tr = useT();
@@ -47,9 +47,7 @@ export default function Audit() {
       <div className="mt-1 flex items-start justify-between gap-2">
         <div>
           <h1 className="text-lg font-semibold">{v.centre_name}</h1>
-          <p className="text-xs text-slate-500">
-            {fmtDate(v.audit_date)} · {tr('{n} tractors in stock list', { n: d.tractors.filter((t) => t.source === 'inventory').length })}
-          </p>
+          <p className="text-xs text-slate-500">{fmtDate(v.audit_date)}</p>
         </div>
         <VisitBadge status={v.status} />
       </div>
@@ -83,9 +81,7 @@ export default function Audit() {
       </>
     );
 
-  const inv = d.tractors.filter((t) => t.source === 'inventory');
-  const extras = d.tractors.filter((t) => t.source === 'extra');
-  const checked = inv.filter((t) => t.status !== 'pending').length;
+  const recorded = seenOf(d).length;
 
   return (
     <>
@@ -95,22 +91,16 @@ export default function Audit() {
           <span className="font-medium">{tr('Correction needed:')}</span> {v.review_note}
         </div>
       )}
-      <div className="mb-3">
-        <div className="mb-1 flex justify-between text-xs text-slate-500">
-          <span>{tr('{a} of {b} checked', { a: checked, b: inv.length })}</span>
-          <span>{tr('Location is being recorded until you submit')}</span>
-        </div>
-        <div className="h-2 overflow-hidden rounded-full bg-slate-200">
-          <div className="h-full bg-brand-600 transition-all" style={{ width: `${inv.length ? (checked / inv.length) * 100 : 100}%` }} />
-        </div>
+      <div className="mb-3 flex justify-between text-xs text-slate-500">
+        <span>{tr('{n} tractors recorded', { n: recorded })}</span>
+        <span>{tr('Location is being recorded until you submit')}</span>
       </div>
       <BackgroundTip />
       <Storefront d={d} place={place} setD={setD} />
-      <div className="sticky top-[52px] z-[400] -mx-4 mb-4 grid grid-cols-5 border-b border-slate-200 bg-slate-50 px-1 text-[13px]">
+      <div className="sticky top-[52px] z-[400] -mx-4 mb-4 grid grid-cols-4 border-b border-slate-200 bg-slate-50 px-1 text-[13px]">
         {(
           [
-            ['tractors', tr('Stock ({n})', { n: inv.length })],
-            ['extra', tr('Extra ({n})', { n: extras.length })],
+            ['tractors', tr('Tractors ({n})', { n: recorded })],
             ['accessories', tr('Accessories ({n})', { n: d.accessories.length })],
             ['facility', tr('Facility')],
             ['finish', tr('Finish')],
@@ -121,8 +111,7 @@ export default function Audit() {
           </button>
         ))}
       </div>
-      {tab === 'tractors' && <TractorList d={d} list={inv} place={place} setD={setD} />}
-      {tab === 'extra' && <Extras d={d} place={place} setD={setD} />}
+      {tab === 'tractors' && <Tractors d={d} place={place} setD={setD} />}
       {tab === 'accessories' && <Accessories d={d} place={place} setD={setD} />}
       {tab === 'facility' && <Facility d={d} place={place} setD={setD} />}
       {tab === 'finish' && <Finish d={d} setD={setD} onSubmitted={load.reload} goTo={setTab} />}
@@ -322,295 +311,295 @@ function Storefront({ d, place, setD }: { d: VisitDetail; place: string; setD: S
   );
 }
 
-// ------------------------------------------------------------------ tractor checklist
+// ------------------------------------------------------------------ tractors shown (blind count)
+//
+// The auditor never sees the stock list or how many tractors it has. They record every tractor
+// they are shown; the office matches it against the list.
 
 type SetD = (fn: (d: VisitDetail) => VisitDetail) => void;
-const photosOf = (d: VisitDetail, t: Tractor) => d.photos.filter((p) => p.tractor_id === t.id);
 const replacePhotos = (d: VisitDetail, keep: (p: Photo) => boolean, next: Photo[]) => ({ ...d, photos: [...d.photos.filter(keep), ...next] });
-
-function TractorList({ d, list, place, setD }: { d: VisitDetail; list: Tractor[]; place: string; setD: SetD }) {
-  const tr = useT();
-  const [q, setQ] = useState('');
-  const [filter, setFilter] = useState<'all' | 'pending' | 'done'>('all');
-  const [open, setOpen] = useState<number | null>(null);
-  const shown = useMemo(() => {
-    const k = idKey(q);
-    return list.filter(
-      (t) =>
-        (!k || idKey(t.reg_no).includes(k) || idKey(t.chassis_no).includes(k) || idKey(t.engine_no).includes(k)) &&
-        (filter === 'all' || (filter === 'pending' ? t.status === 'pending' : t.status !== 'pending')),
-    );
-  }, [list, q, filter]);
-  const current = d.tractors.find((t) => t.id === open) ?? null;
-
-  const next = () => {
-    const i = list.findIndex((t) => t.id === open);
-    const n = [...list.slice(i + 1), ...list.slice(0, i)].find((t) => t.status === 'pending');
-    setOpen(n?.id ?? null);
+const seenOf = (d: VisitDetail) => d.tractors as unknown as SeenTractor[];
+/** Photos a recorded tractor still needs: chassis, whole tractor, meter. */
+const missingPhotos = (d: VisitDetail, t: SeenTractor) => {
+  const ps = d.photos.filter((p) => p.tractor_id === t.id);
+  return {
+    chassis: !ps.some((p) => p.kind === 'chassis'),
+    tractor: !ps.some((p) => p.kind === 'tractor'),
+    meter: !ps.some((p) => p.kind === 'other'),
   };
+};
+const UNIT_LABEL = { km: 'KM', hours: 'Hours' } as const;
+const DAY_OVER_MSG = 'The audit day is over – tractors can only be recorded on the day of check-in. Submit the audit now; tractors not shown will be reported as short.';
 
-  return (
-    <div>
-      <div className="mb-3 flex gap-2">
-        <input className={inputCls} placeholder={tr('Search reg / chassis / engine no.')} value={q} onChange={(e) => setQ(e.target.value)} />
-        <select className={`${inputCls} w-auto`} value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} aria-label="Filter">
-          <option value="all">{tr('All')}</option>
-          <option value="pending">{tr('To check')}</option>
-          <option value="done">{tr('Checked')}</option>
-        </select>
-      </div>
-      <div className="space-y-2">
-        {shown.map((t) => {
-          const n = photosOf(d, t).filter((p) => p.kind === 'chassis').length;
-          return (
-            <button key={t.id} onClick={() => setOpen(t.id)} className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 text-left">
-              <div className="min-w-0">
-                <div className="font-mono font-semibold">{t.reg_no || '—'}</div>
-                <div className="truncate font-mono text-xs text-slate-500">
-                  {tr('Chassis')} {t.chassis_no}
-                </div>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-1">
-                <TractorBadge status={t.status} />
-                {t.status !== 'pending' && t.status !== 'not_found' && (!n || !photosOf(d, t).some((p) => p.kind === 'tractor')) && (
-                  <span className="text-xs text-amber-600">{tr('photo missing')}</span>
-                )}
-              </div>
-            </button>
-          );
-        })}
-        {!shown.length && <p className="p-4 text-center text-sm text-slate-500">{tr('No tractors match.')}</p>}
-      </div>
-      {current && (
-        <TractorSheet
-          key={current.id}
-          d={d}
-          t={current}
-          place={place}
-          onClose={() => setOpen(null)}
-          onSaved={(t) => {
-            setD((x) => ({ ...x, tractors: x.tractors.map((y) => (y.id === t.id ? t : y)) }));
-            next();
-          }}
-          setD={setD}
-        />
-      )}
-    </div>
-  );
-}
-
-function TractorSheet({
-  d,
-  t,
-  place,
-  onClose,
-  onSaved,
-  setD,
-}: {
-  d: VisitDetail;
-  t: Tractor;
-  place: string;
-  onClose: () => void;
-  onSaved: (t: Tractor) => void;
-  setD: SetD;
-}) {
+function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
   const tr = useT();
-  const [reg, setReg] = useState(t.verified_reg ?? t.reg_no ?? '');
-  const [chassis, setChassis] = useState(t.verified_chassis ?? '');
-  const [remarks, setRemarks] = useState(t.remarks ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const photos = photosOf(d, t);
-  const chassisPhotos = photos.filter((p) => p.kind === 'chassis');
-  const cmp = compareChassis(t.chassis_no, chassis);
-  const name = t.reg_no || t.chassis_no || 'Tractor';
+  const seen = seenOf(d);
+  const open = d.visit.same_day_open !== false;
+  const [adding, setAdding] = useState(false);
+  // After the count is done, new tractors are most likely at the off-site place the auditor just checked in at
+  const [where, setWhere] = useState<number | null>(d.visit.count_done_at && d.locations.length ? d.locations[d.locations.length - 1].id : null);
 
-  async function save(status: TractorStatus) {
-    setError(null);
-    if (status !== 'not_found' && !chassisPhotos.length) return setError('Take a photo of the chassis number first.');
-    if (status !== 'not_found' && !photos.some((p) => p.kind === 'tractor')) return setError('Take a photo of the whole tractor.');
-    if (status !== 'not_found' && !idKey(chassis)) return setError('Type the chassis number you see on the tractor.');
-    if (status === 'mismatch' && !remarks.trim()) return setError('Add a remark explaining the mismatch.');
-    setBusy(true);
-    try {
-      const saved = await api.patch<Tractor>(`/tractors/${t.id}`, {
-        status,
-        verified_reg: status === 'not_found' ? null : reg,
-        // A near-match the auditor confirmed as the same plate is a typo: record the correct number
-        verified_chassis: status === 'not_found' ? null : status === 'verified' && cmp === 'near' ? t.chassis_no : chassis,
-        remarks,
-      });
-      onSaved(saved);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal open onClose={onClose} title={name}>
-      <div className="space-y-4">
-        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-slate-50 p-3 text-sm">
-          <span className="text-slate-500">{tr('Reg. no')}</span>
-          <span className="font-mono font-semibold">{t.reg_no}</span>
-          <span className="text-slate-500">{tr('Chassis')}</span>
-          <span className="font-mono font-semibold break-all">{t.chassis_no}</span>
-          <span className="text-slate-500">{tr('Engine')}</span>
-          <span className="font-mono break-all">{t.engine_no}</span>
-        </div>
-
-        <Field group label={tr('1. Photo of the chassis number *')}>
-          <PhotoButton
-            visitId={d.visit.id}
-            kind="chassis"
-            label={tr('Chassis photo')}
-            stampTitle={`${name} · Chassis ${t.chassis_no ?? ''}`}
-            place={place}
-            tractorId={t.id}
-            photos={chassisPhotos}
-            required
-            onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'chassis'), ps))}
-          />
-        </Field>
-        <Field group label={tr('2. Photo of the whole tractor *')}>
-          <PhotoButton
-            visitId={d.visit.id}
-            kind="tractor"
-            label={tr('Tractor photo')}
-            stampTitle={`${name} · Tractor`}
-            place={place}
-            tractorId={t.id}
-            photos={photos.filter((p) => p.kind === 'tractor')}
-            required
-            onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'tractor'), ps))}
-          />
-        </Field>
-
-        <Field label={tr('3. Chassis number on the tractor *')} hint={tr('Type exactly what is punched on the chassis.')}>
-          <input className={`${inputCls} font-mono uppercase`} value={chassis} onChange={(e) => setChassis(e.target.value.toUpperCase())} autoCapitalize="characters" />
-        </Field>
-        {cmp === 'match' && <p className="-mt-2 text-sm font-medium text-green-700">{tr('✓ Matches the stock list')}</p>}
-        {cmp === 'near' && <p className="-mt-2 text-sm font-medium text-amber-700">{tr('Almost matches – check each character (0/O, 1/I, 5/S, 8/B).')}</p>}
-        {cmp === 'different' && <p className="-mt-2 text-sm font-medium text-red-600">{tr('Does not match the stock list ({c}).', { c: t.chassis_no })}</p>}
-
-        <Field label={tr('RC / registration number seen')}>
-          <input className={`${inputCls} font-mono uppercase`} value={reg} onChange={(e) => setReg(e.target.value.toUpperCase())} />
-        </Field>
-        <Field label={tr('Remarks')}>
-          <input className={inputCls} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder={tr('Optional (required for mismatch)')} />
-        </Field>
-        <ErrorBox error={error} />
-        <div className="grid grid-cols-3 gap-2">
-          <Button onClick={() => save('verified')} busy={busy} disabled={cmp !== 'match' && cmp !== 'near'} className="py-3">
-            {tr('✓ Verified')}
-          </Button>
-          <Button variant="warning" onClick={() => save('mismatch')} disabled={busy || cmp === 'empty'} className="py-3">
-            {tr('Mismatch')}
-          </Button>
-          <Button variant="danger" onClick={() => save('not_found')} disabled={busy} className="py-3">
-            {tr('Not found')}
-          </Button>
-        </div>
-        {t.status !== 'pending' && (
-          <p className="text-center text-xs text-slate-500">
-            {tr('Currently marked')} <TractorBadge status={t.status} />
-          </p>
-        )}
-      </div>
-    </Modal>
-  );
-}
-
-// ------------------------------------------------------------------ extras
-
-function Extras({ d, place, setD }: { d: VisitDetail; place: string; setD: SetD }) {
-  const tr = useT();
-  const extras = d.tractors.filter((t) => t.source === 'extra');
-  const [f, setF] = useState({ reg_no: '', chassis_no: '', remarks: '' });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function add() {
-    setBusy(true);
-    setError(null);
-    try {
-      const t = await api.post<Tractor>(`/visits/${d.visit.id}/tractors`, f);
-      setD((x) => ({ ...x, tractors: [...x.tractors, t] }));
-      setF({ reg_no: '', chassis_no: '', remarks: '' });
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function remove(t: Tractor) {
-    if (!confirm(tr('Remove extra tractor {x}?', { x: t.reg_no ?? t.chassis_no ?? '' }))) return;
+  async function remove(t: SeenTractor) {
+    if (!confirm(tr('Remove tractor {x}? Its photos will be deleted.', { x: t.reg_no || t.chassis_no || '' }))) return;
     await api.del(`/tractors/${t.id}`);
     setD((x) => ({ ...x, tractors: x.tractors.filter((y) => y.id !== t.id), photos: x.photos.filter((p) => p.tractor_id !== t.id) }));
   }
 
-  // Warn if the "extra" is actually in the stock list
-  const listed = (chassis: string) => d.tractors.find((t) => t.source === 'inventory' && idKey(t.chassis_no) === idKey(chassis) && idKey(chassis));
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">{tr('Record every tractor you are shown, one by one: chassis number, plate, engine number, meter reading and 3 photos.')}</p>
+      {!open && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{tr(DAY_OVER_MSG)}</div>}
+      {open && (
+        <Button size="lg" onClick={() => setAdding(true)}>
+          {tr('+ Record a tractor')}
+        </Button>
+      )}
+      {[...seen].reverse().map((t) => {
+        const miss = missingPhotos(d, t);
+        const loc = t.location_id ? d.locations.find((l) => l.id === t.location_id) : null;
+        const ps = d.photos.filter((p) => p.tractor_id === t.id);
+        const title = `${t.reg_no ?? ''} · ${tr('Chassis')} ${t.chassis_no ?? ''}`;
+        return (
+          <Card key={t.id} className={cx('space-y-3 p-3', (miss.chassis || miss.tractor || miss.meter) && 'border-amber-300')}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="font-mono font-semibold">{t.reg_no || tr('No reg. no')}</div>
+                <div className="truncate font-mono text-xs text-slate-500">
+                  {tr('Chassis')} {t.chassis_no}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {t.engine_no && `${tr('Engine')} ${t.engine_no} · `}
+                  {tr('Meter')} {t.meter_reading} {tr(UNIT_LABEL[t.meter_unit ?? 'km'])} · {loc ? `📍 ${loc.name}` : tr('At the centre')}
+                </div>
+              </div>
+              {open && (
+                <button onClick={() => remove(t)} className="shrink-0 text-sm text-red-600">
+                  {tr('Remove')}
+                </button>
+              )}
+            </div>
+            <div className="space-y-3">
+              <PhotoButton
+                visitId={d.visit.id}
+                kind="chassis"
+                label={tr('Chassis photo')}
+                stampTitle={`${title} · Chassis`}
+                place={place}
+                tractorId={t.id}
+                required
+                photos={ps.filter((p) => p.kind === 'chassis')}
+                onChange={(n) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'chassis'), n))}
+              />
+              <PhotoButton
+                visitId={d.visit.id}
+                kind="tractor"
+                label={tr('Tractor photo')}
+                stampTitle={`${title} · Tractor`}
+                place={place}
+                tractorId={t.id}
+                required
+                photos={ps.filter((p) => p.kind === 'tractor')}
+                onChange={(n) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'tractor'), n))}
+              />
+              <PhotoButton
+                visitId={d.visit.id}
+                kind="meter"
+                label={tr('Meter photo')}
+                stampTitle={`${title} · Meter ${t.meter_reading ?? ''} ${UNIT_LABEL[t.meter_unit ?? 'km']}`}
+                place={place}
+                tractorId={t.id}
+                required
+                photos={ps.filter((p) => p.kind === 'other')}
+                onChange={(n) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'other'), n))}
+              />
+            </div>
+          </Card>
+        );
+      })}
+      {!seen.length && <p className="p-4 text-center text-sm text-slate-500">{tr('No tractors recorded yet.')}</p>}
+      <Modal open={adding} onClose={() => setAdding(false)} title={tr('Record a tractor')}>
+        <RecordTractor
+          d={d}
+          location={where}
+          onSaved={(t) => {
+            setD((x) => ({ ...x, tractors: [...x.tractors, t as unknown as Tractor] }));
+            setWhere(t.location_id);
+            setAdding(false);
+          }}
+        />
+      </Modal>
+    </div>
+  );
+}
+
+const UNIT_KEY = 'tj_meter_unit';
+
+function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: number | null; onSaved: (t: SeenTractor) => void }) {
+  const tr = useT();
+  const [reg, setReg] = useState('');
+  const [chassis, setChassis] = useState('');
+  const [engine, setEngine] = useState('');
+  const [meter, setMeter] = useState('');
+  const [unit, setUnit] = useState<'km' | 'hours'>(() => {
+    try {
+      return localStorage.getItem(UNIT_KEY) === 'hours' ? 'hours' : 'km';
+    } catch {
+      return 'km';
+    }
+  });
+  const [loc, setLoc] = useState<number | null>(location);
+  // Typo safety: a chassis close to a stock one must be typed a second time (nothing about the list is revealed)
+  const [firstTyped, setFirstTyped] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      try {
+        localStorage.setItem(UNIT_KEY, unit);
+      } catch {
+        /* ignore */
+      }
+      const t = await api.post<SeenTractor>(`/visits/${d.visit.id}/seen`, {
+        reg_no: reg,
+        chassis_no: chassis,
+        engine_no: engine,
+        meter_reading: meter,
+        meter_unit: unit,
+        location_id: loc,
+        confirm_chassis: firstTyped,
+      });
+      onSaved(t);
+    } catch (e) {
+      if (e instanceof ApiError && e.data.retype) {
+        setFirstTyped(chassis);
+        setChassis('');
+      } else setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-slate-600">{tr('Tractors physically at the centre that are not in the stock list.')}</p>
-      {extras.map((t) => (
-        <Card key={t.id} className="space-y-3 p-3">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="font-mono font-semibold">{t.reg_no || tr('No reg. no')}</div>
-              <div className="font-mono text-xs text-slate-500">
-                {tr('Chassis')} {t.chassis_no || '—'}
-              </div>
-              {t.remarks && <div className="text-xs text-slate-600">{t.remarks}</div>}
-            </div>
-            <button onClick={() => remove(t)} className="text-sm text-red-600">
-              {tr('Remove')}
-            </button>
+    <div className="space-y-3">
+      <Field label={tr('Chassis number (as punched on the tractor) *')}>
+        <input
+          className={`${inputCls} font-mono uppercase`}
+          value={chassis}
+          onChange={(e) => setChassis(e.target.value.toUpperCase())}
+          autoCapitalize="characters"
+          autoComplete="off"
+          aria-label="Chassis number"
+        />
+      </Field>
+      {firstTyped !== null && (
+        <p className="-mt-1 rounded-lg bg-amber-50 p-2 text-sm text-amber-900">
+          {tr('Please check the chassis number on the tractor again and type it once more.')}
+        </p>
+      )}
+      <Field label={tr('Registration number (number plate)')}>
+        <input className={`${inputCls} font-mono uppercase`} value={reg} onChange={(e) => setReg(e.target.value.toUpperCase())} placeholder={tr('Leave empty if there is no plate')} />
+      </Field>
+      <Field label={tr('Engine number')}>
+        <input className={`${inputCls} font-mono uppercase`} value={engine} onChange={(e) => setEngine(e.target.value.toUpperCase())} />
+      </Field>
+      <Field label={tr('Meter reading *')}>
+        <div className="flex gap-2">
+          <input className={inputCls} type="number" inputMode="decimal" min={0} step="0.1" value={meter} onChange={(e) => setMeter(e.target.value)} aria-label="Meter reading" />
+          <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-300 text-sm">
+            {(['km', 'hours'] as const).map((u) => (
+              <button key={u} type="button" onClick={() => setUnit(u)} className={cx('px-3', unit === u ? 'bg-brand-800 text-white' : 'bg-white text-slate-700')}>
+                {tr(UNIT_LABEL[u])}
+              </button>
+            ))}
           </div>
-          <PhotoButton
-            visitId={d.visit.id}
-            kind="chassis"
-            label={tr('Chassis photo')}
-            stampTitle={`EXTRA ${t.reg_no ?? ''} · Chassis ${t.chassis_no ?? ''}`}
-            place={place}
-            tractorId={t.id}
-            required
-            photos={photosOf(d, t).filter((p) => p.kind === 'chassis')}
-            onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'chassis'), ps))}
-          />
-          <PhotoButton
-            visitId={d.visit.id}
-            kind="tractor"
-            label={tr('Tractor photo')}
-            stampTitle={`EXTRA ${t.reg_no ?? ''} · Tractor`}
-            place={place}
-            tractorId={t.id}
-            required
-            photos={photosOf(d, t).filter((p) => p.kind === 'tractor')}
-            onChange={(ps) => setD((x) => replacePhotos(x, (p) => !(p.tractor_id === t.id && p.kind === 'tractor'), ps))}
-          />
-        </Card>
-      ))}
-      <Card className="space-y-3 p-3">
-        <h3 className="font-semibold">{tr('Add extra tractor')}</h3>
-        <Field label={tr('Registration no.')}>
-          <input className={`${inputCls} font-mono uppercase`} value={f.reg_no} onChange={(e) => setF({ ...f, reg_no: e.target.value.toUpperCase() })} />
+        </div>
+      </Field>
+      {d.locations.length > 0 && (
+        <Field label={tr('Where is this tractor?')}>
+          <select className={inputCls} value={loc ?? ''} onChange={(e) => setLoc(e.target.value ? Number(e.target.value) : null)}>
+            <option value="">{tr('At the centre')}</option>
+            {d.locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
         </Field>
-        <Field label={tr('Chassis no.')}>
-          <input className={`${inputCls} font-mono uppercase`} value={f.chassis_no} onChange={(e) => setF({ ...f, chassis_no: e.target.value.toUpperCase() })} />
-        </Field>
-        {listed(f.chassis_no) && <p className="text-sm text-amber-700">{tr('This chassis is in the stock list ({r}). Check it in the Stock tab instead.', { r: listed(f.chassis_no)!.reg_no ?? '' })}</p>}
-        <Field label={tr('Remarks')}>
-          <input className={inputCls} value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} />
-        </Field>
-        <ErrorBox error={error} />
-        <Button onClick={add} busy={busy} disabled={!f.reg_no.trim() && !f.chassis_no.trim()}>
-          {tr('Add, then take photos')}
-        </Button>
-      </Card>
+      )}
+      <ErrorBox error={error} />
+      <Button size="lg" onClick={save} busy={busy} disabled={!chassis.trim() || meter === ''}>
+        {tr('Save, then take photos')}
+      </Button>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ off-site locations (yard, service centre…)
+
+const LOCATION_KINDS = ['Other yard / godown', 'Service centre', 'Other'];
+
+function AddLocation({ d, onAdded }: { d: VisitDetail; onAdded: (l: VisitLocation) => void }) {
+  const tr = useT();
+  const [name, setName] = useState('');
+  const [kind, setKind] = useState(LOCATION_KINDS[0]);
+  const [address, setAddress] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send(photo: StampedPhoto) {
+    if (!name.trim()) return setError(tr('Enter the name of the place (e.g. "Sharma service centre").'));
+    setBusy(true);
+    setError(null);
+    try {
+      const fix = photo.fix ?? (await getPosition());
+      const form = new FormData();
+      form.append('file', photo.blob, 'place.jpg');
+      form.append('name', name);
+      form.append('kind', kind);
+      form.append('address', address);
+      form.append('lat', String(fix.lat));
+      form.append('lng', String(fix.lng));
+      if (fix.accuracy != null) form.append('accuracy', String(fix.accuracy));
+      onAdded(await api.post<VisitLocation>(`/visits/${d.visit.id}/locations`, form));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">{tr('Go to the place with the centre staff. Check in there with a photo of the place – your location is recorded.')}</p>
+      <Field label={tr('Name of the place *')}>
+        <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder={tr('e.g. Sharma service centre')} />
+      </Field>
+      <Field label={tr('Type of place')}>
+        <select className={inputCls} value={kind} onChange={(e) => setKind(e.target.value)}>
+          {LOCATION_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {tr(k)}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label={tr('Address / landmark')}>
+        <input className={inputCls} value={address} onChange={(e) => setAddress(e.target.value)} />
+      </Field>
+      <div className="text-sm font-medium text-slate-700">{tr('Photo of the place *')}</div>
+      <LiveCamera
+        facing="environment"
+        title={`Off-site · ${name || d.visit.centre_name}`}
+        place={`${d.visit.centre_name}, ${d.visit.state}`}
+        captureLabel={tr('Take photo')}
+        confirmLabel={tr('Check in here')}
+        busy={busy}
+        onConfirm={send}
+      />
+      <ErrorBox error={error} />
     </div>
   );
 }
@@ -883,33 +872,60 @@ function NotDone({ d }: { d: VisitDetail }) {
   );
 }
 
-// ------------------------------------------------------------------ finish: signatures & submit
+// ------------------------------------------------------------------ finish: count result, off-site, declaration, submit
 
 function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; onSubmitted: () => void; goTo: (t: Tab) => void }) {
   const tr = useT();
   const v = d.visit;
   const navigate = useNavigate();
+  const { me } = useAuth();
+  const seen = seenOf(d);
+  const [pending, setPending] = useState<number | null>(null);
+  const [popup, setPopup] = useState(false);
+  const [counting, setCounting] = useState(false);
+  const [addingPlace, setAddingPlace] = useState(false);
+  const [explanation, setExplanation] = useState(v.missing_explanation ?? '');
   const [manager, setManager] = useState(v.manager_name ?? v.centre_manager ?? '');
+  const [managerPhone, setManagerPhone] = useState(v.manager_phone ?? v.centre_manager_phone ?? '');
   const [remarks, setRemarks] = useState(v.general_remarks ?? '');
   const [sigBusy, setSigBusy] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ msg: string; problems?: string[] } | null>(null);
+  const counted = !!v.count_done_at;
+
+  // Refresh the "not shown" number whenever the Finish tab is opened after the count
+  useEffect(() => {
+    if (counted) api.post<{ pending: number }>(`/visits/${v.id}/count-done`).then((r) => setPending(r.pending), () => {});
+  }, [counted, v.id, seen.length]);
+
+  async function countDone() {
+    setCounting(true);
+    setError(null);
+    try {
+      const r = await api.post<{ pending: number }>(`/visits/${v.id}/count-done`);
+      setPending(r.pending);
+      setPopup(true);
+      if (!counted) setD((x) => ({ ...x, visit: { ...x.visit, count_done_at: new Date().toISOString() } }));
+    } catch (e) {
+      setError({ msg: (e as Error).message });
+    } finally {
+      setCounting(false);
+    }
+  }
 
   const problems = useMemo(() => {
     const p: { msg: string; tab: Tab }[] = [];
-    const pending = d.tractors.filter((t) => t.status === 'pending').length;
-    if (pending) p.push({ msg: tr('{n} tractor(s) not checked yet', { n: pending }), tab: 'tractors' });
-    const noPhoto = d.tractors.filter((t) => t.status !== 'pending' && t.status !== 'not_found' && !d.photos.some((x) => x.tractor_id === t.id && x.kind === 'chassis'));
-    if (noPhoto.length) p.push({ msg: tr('{n} tractor(s) without chassis photo', { n: noPhoto.length }), tab: noPhoto.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
-    const noTractor = d.tractors.filter((t) => t.status !== 'pending' && t.status !== 'not_found' && !d.photos.some((x) => x.tractor_id === t.id && x.kind === 'tractor'));
-    if (noTractor.length) p.push({ msg: tr('{n} tractor(s) without tractor photo', { n: noTractor.length }), tab: noTractor.some((t) => t.source === 'extra') ? 'extra' : 'tractors' });
+    const lack = (k: 'chassis' | 'tractor' | 'meter') => seen.filter((t) => missingPhotos(d, t)[k]).length;
+    if (lack('chassis')) p.push({ msg: tr('{n} tractor(s) without chassis photo', { n: lack('chassis') }), tab: 'tractors' });
+    if (lack('tractor')) p.push({ msg: tr('{n} tractor(s) without tractor photo', { n: lack('tractor') }), tab: 'tractors' });
+    if (lack('meter')) p.push({ msg: tr('{n} tractor(s) without meter photo', { n: lack('meter') }), tab: 'tractors' });
     const accNo = d.accessories.filter((a) => !d.photos.some((x) => x.accessory_id === a.id));
     if (accNo.length) p.push({ msg: tr('{n} accessory item(s) without photo', { n: accNo.length }), tab: 'accessories' });
     if (!d.photos.some((x) => x.kind === 'storefront')) p.push({ msg: tr('Storefront photo not taken (top of the page)'), tab: 'tractors' });
     const fac = d.facility.filter((f) => facilityProblem(f, d.photos.filter((x) => x.facility_id === f.id).length));
     if (fac.length) p.push({ msg: tr('{n} facility area(s) not complete', { n: fac.length }), tab: 'facility' });
     return p;
-  }, [d, tr]);
+  }, [d, seen, tr]);
 
   async function saveSig(who: 'auditor' | 'manager', png: Blob) {
     setSigBusy(who);
@@ -930,7 +946,14 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
     setError(null);
     try {
       const fix = await getPosition().catch(() => null);
-      await api.post(`/visits/${v.id}/submit`, { manager_name: manager, general_remarks: remarks, lat: fix?.lat, lng: fix?.lng });
+      await api.post(`/visits/${v.id}/submit`, {
+        manager_name: manager,
+        manager_phone: managerPhone,
+        missing_explanation: explanation,
+        general_remarks: remarks,
+        lat: fix?.lat,
+        lng: fix?.lng,
+      });
       tracker.stop();
       onSubmitted();
       navigate('/');
@@ -941,52 +964,194 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
     }
   }
 
-  const inv = d.tractors.filter((t) => t.source === 'inventory');
+  const atCentre = seen.filter((t) => !t.location_id).length;
+  const elsewhere = seen.length - atCentre;
+  const placeNames = d.locations.map((l) => l.name).join(', ');
+  const declaration = tr(
+    'I confirm that all tractors and accessories of {centre} were shown to the auditor today, including those kept at other places listed here. Tractors shown: {n}.',
+    { centre: v.centre_name, n: seen.length },
+  );
+  const phoneDigits = managerPhone.replace(/\D/g, '').slice(-10);
+  const whatsapp = () => {
+    const lines = [
+      `Stock audit – ${v.centre_name}, ${fmtDate(v.audit_date)}`,
+      `Auditor: ${me.name}`,
+      `Tractors shown and recorded: ${seen.length} (at centre ${atCentre}${elsewhere ? `, at other places ${elsewhere}` : ''})`,
+      ...(d.locations.length ? [`Other places visited: ${placeNames}`] : []),
+      ...(pending ? [`Tractors in the records not shown: ${pending}`, `Explanation given: ${explanation || '-'}`] : []),
+      `Accessory items: ${d.accessories.length}`,
+      `Manager: ${manager}`,
+      '',
+      'This is a copy of the summary you signed on the auditor’s phone.',
+    ];
+    window.open(`https://wa.me/91${phoneDigits}?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
+  };
+
   return (
     <div className="space-y-4">
-      <Card className="p-4 text-sm">
-        <h3 className="mb-2 font-semibold">{tr('Summary')}</h3>
+      {/* Step 1: finish the count */}
+      <Card className="space-y-3 p-4 text-sm">
+        <h3 className="font-semibold">{tr('1. Count')}</h3>
         <div className="grid grid-cols-2 gap-1">
-          <span>{tr('Verified')}</span>
-          <span className="text-right font-semibold">{inv.filter((t) => t.status === 'verified').length}</span>
-          <span>{tr('Chassis mismatch')}</span>
-          <span className="text-right font-semibold">{inv.filter((t) => t.status === 'mismatch').length}</span>
-          <span>{tr('Not found (short)')}</span>
-          <span className="text-right font-semibold">{inv.filter((t) => t.status === 'not_found').length}</span>
-          <span>{tr('Extra')}</span>
-          <span className="text-right font-semibold">{d.tractors.filter((t) => t.source === 'extra').length}</span>
+          <span>{tr('Tractors recorded')}</span>
+          <span className="text-right font-semibold">{seen.length}</span>
+          {elsewhere > 0 && (
+            <>
+              <span>{tr('· at the centre')}</span>
+              <span className="text-right">{atCentre}</span>
+              <span>{tr('· at other places')}</span>
+              <span className="text-right">{elsewhere}</span>
+            </>
+          )}
           <span>{tr('Accessory items')}</span>
           <span className="text-right font-semibold">{d.accessories.length}</span>
         </div>
-        {problems.length > 0 && (
-          <div className="mt-3 space-y-1 rounded-lg bg-amber-50 p-2">
-            {problems.map((p) => (
-              <button key={p.msg} onClick={() => goTo(p.tab)} className="block text-left text-amber-800 underline">
-                ⚠ {p.msg}
-              </button>
-            ))}
+        {!counted ? (
+          <>
+            <p className="text-slate-600">{tr('When you have recorded every tractor you were shown at the centre, tap below.')}</p>
+            <Button onClick={countDone} busy={counting} disabled={!seen.length}>
+              {tr('Done counting')}
+            </Button>
+          </>
+        ) : pending === null ? null : pending === 0 ? (
+          <p className="rounded-lg bg-green-50 p-2 font-medium text-green-800">{tr('✓ All tractors in the records have been shown.')}</p>
+        ) : (
+          <div className="space-y-2 rounded-lg bg-amber-50 p-3 text-amber-900">
+            <p className="font-semibold">{tr('{n} tractor(s) in the records not shown yet', { n: pending })}</p>
+            <p>{tr('Ask the manager where they are. If they are at another yard or a service centre, go there today and record them.')}</p>
+            <Button size="sm" variant="secondary" onClick={countDone} busy={counting}>
+              {tr('Check again')}
+            </Button>
           </div>
         )}
       </Card>
-      <Field label={tr('General remarks (optional)')}>
-        <textarea className={inputCls} rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
-      </Field>
-      <Card className="space-y-2 p-4">
-        <h3 className="font-semibold">{tr('Auditor signature')}</h3>
-        <SignaturePad onSave={(b) => saveSig('auditor', b)} saved={v.has_auditor_signature} busy={sigBusy === 'auditor'} />
-      </Card>
-      <Card className="space-y-3 p-4">
-        <h3 className="font-semibold">{tr('Outlet manager')}</h3>
-        <Field label={tr("Manager's name *")}>
-          <input className={inputCls} value={manager} onChange={(e) => setManager(e.target.value)} />
+
+      {/* Step 2: other places */}
+      {counted && (
+        <Card className="space-y-3 p-4 text-sm">
+          <h3 className="font-semibold">{tr('2. Tractors kept at other places')}</h3>
+          {d.locations.map((l) => (
+            <div key={l.id} className="flex items-start justify-between gap-2 rounded-lg bg-slate-50 p-2">
+              <div>
+                <div className="font-medium">📍 {l.name}</div>
+                <div className="text-xs text-slate-500">
+                  {[l.kind && tr(l.kind), l.distance_m != null && tr('{d} from the centre', { d: fmtDistance(l.distance_m) }), fmtDateTime(l.arrived_at)].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              <span className="shrink-0 text-xs text-slate-600">{tr('{n} tractors', { n: seen.filter((t) => t.location_id === l.id).length })}</span>
+            </div>
+          ))}
+          {d.visit.same_day_open !== false && (
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setAddingPlace(true)}>
+                {tr('+ Check in at another place')}
+              </Button>
+              {d.locations.length > 0 && (
+                <Button size="sm" variant="secondary" onClick={() => goTo('tractors')}>
+                  {tr('Record tractors there')}
+                </Button>
+              )}
+            </div>
+          )}
+          {!d.locations.length && <p className="text-xs text-slate-500">{tr('Not needed if every tractor was shown at the centre.')}</p>}
+        </Card>
+      )}
+
+      {counted && !!pending && (
+        <Field label={tr("Manager's explanation for the tractors not shown *")}>
+          <textarea
+            className={inputCls}
+            rows={3}
+            value={explanation}
+            onChange={(e) => setExplanation(e.target.value)}
+            onBlur={() => api.put(`/visits/${v.id}/explanation`, { missing_explanation: explanation }).catch(() => {})}
+            placeholder={tr('e.g. 2 sold, invoice not yet sent to the office; 1 with a customer for a demo')}
+          />
         </Field>
-        <SignaturePad onSave={(b) => saveSig('manager', b)} saved={v.has_manager_signature} busy={sigBusy === 'manager'} />
-      </Card>
-      <ErrorBox error={error?.msg} problems={error?.problems} />
-      <Button size="lg" onClick={submit} busy={busy} disabled={problems.length > 0 || !manager.trim() || !v.has_auditor_signature || !v.has_manager_signature}>
-        {tr('Submit audit and check out')}
-      </Button>
-      <p className="text-center text-xs text-slate-500">{tr('After submitting you cannot edit unless the office sends it back.')}</p>
+      )}
+
+      {problems.length > 0 && (
+        <div className="space-y-1 rounded-lg bg-amber-50 p-2 text-sm">
+          {problems.map((p) => (
+            <button key={p.msg} onClick={() => goTo(p.tab)} className="block text-left text-amber-800 underline">
+              ⚠ {p.msg}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {counted && (
+        <>
+          <Field label={tr('General remarks (optional)')}>
+            <textarea className={inputCls} rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} />
+          </Field>
+          <Card className="space-y-3 p-4">
+            <h3 className="font-semibold">{tr("3. Manager's declaration")}</h3>
+            <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+              {declaration}
+              {d.locations.length > 0 && ` ${tr('Other places: {p}.', { p: placeNames })}`}
+              {!!pending && ` ${tr('Tractors not shown: {n} – explanation given above.', { n: pending })}`}
+            </p>
+            <p className="text-xs text-slate-500">{tr('Show this screen to the manager. They read it and sign below.')}</p>
+            <Field label={tr("Manager's name *")}>
+              <input className={inputCls} value={manager} onChange={(e) => setManager(e.target.value)} />
+            </Field>
+            <Field label={tr("Manager's mobile")}>
+              <input className={inputCls} type="tel" inputMode="tel" value={managerPhone} onChange={(e) => setManagerPhone(e.target.value)} />
+            </Field>
+            <SignaturePad onSave={(b) => saveSig('manager', b)} saved={v.has_manager_signature} busy={sigBusy === 'manager'} />
+            <Button size="sm" variant="secondary" onClick={whatsapp} disabled={phoneDigits.length !== 10 || !v.has_manager_signature}>
+              {tr('Send the manager a copy on WhatsApp')}
+            </Button>
+          </Card>
+          <Card className="space-y-2 p-4">
+            <h3 className="font-semibold">{tr('Auditor signature')}</h3>
+            <SignaturePad onSave={(b) => saveSig('auditor', b)} saved={v.has_auditor_signature} busy={sigBusy === 'auditor'} />
+          </Card>
+          <ErrorBox error={error?.msg} problems={error?.problems} />
+          <Button
+            size="lg"
+            onClick={submit}
+            busy={busy}
+            disabled={problems.length > 0 || !manager.trim() || !v.has_auditor_signature || !v.has_manager_signature || (!!pending && !explanation.trim())}
+          >
+            {tr('Submit audit and check out')}
+          </Button>
+          <p className="text-center text-xs text-slate-500">{tr('After submitting you cannot edit unless the office sends it back.')}</p>
+        </>
+      )}
+      {!counted && <ErrorBox error={error?.msg} />}
+
+      <Modal open={popup} onClose={() => setPopup(false)} title={tr('Count result')}>
+        <div className="space-y-3 text-center">
+          {pending === 0 ? (
+            <>
+              <div className="text-4xl">✅</div>
+              <p className="font-semibold">{tr('✓ All tractors in the records have been shown.')}</p>
+            </>
+          ) : (
+            <>
+              <div className="text-5xl font-bold text-amber-600">{pending}</div>
+              <p className="font-semibold">{tr('tractor(s) in the records were not shown to you')}</p>
+              <p className="text-sm text-slate-600">
+                {tr('Ask the manager where they are. If they are at another yard or a service centre, go there today and record them.')}{' '}
+                {tr('Tractors not shown by the end of today will be reported as short.')}
+              </p>
+            </>
+          )}
+          <Button onClick={() => setPopup(false)}>{tr('OK')}</Button>
+        </div>
+      </Modal>
+      <Modal open={addingPlace} onClose={() => setAddingPlace(false)} title={tr('Check in at another place')}>
+        <AddLocation
+          d={d}
+          onAdded={(l) => {
+            setD((x) => ({ ...x, locations: [...x.locations, l] }));
+            setAddingPlace(false);
+            goTo('tractors');
+          }}
+        />
+      </Modal>
       <NotDone d={d} />
     </div>
   );

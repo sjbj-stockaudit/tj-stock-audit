@@ -4,7 +4,7 @@ import { api, photoUrl, signatureUrl } from '../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, fmtHours, hoursBetween } from '../lib/format';
 import { downloadCentreExcel, downloadCentreReport, summarise } from '../lib/reports';
 import type { Photo, Tractor, User, VisitDetail } from '../lib/types';
-import { FACILITY_RATING_LABEL, compareChassis } from '../../shared/domain';
+import { FACILITY_RATING_LABEL, METER_FLAG_LABEL } from '../../shared/domain';
 import { useAuth } from '../App';
 import MapView, { type MapMarker } from '../components/MapView';
 import { Button, Card, ErrorBox, Field, Loading, Modal, PageTitle, Stat, TractorBadge, VisitBadge, inputCls, useLoad } from '../components/ui';
@@ -142,7 +142,9 @@ export default function VisitView() {
               {v.auditor_name ?? '—'} {isAdmin && v.auditor_phone && <a className="text-brand-700" href={`tel:${v.auditor_phone}`}>{v.auditor_phone}</a>}
             </dd>
             <dt className="text-slate-500">Manager</dt>
-            <dd>{v.manager_name ?? '—'}</dd>
+            <dd>
+              {v.manager_name ?? '—'} {v.manager_phone && <span className="text-slate-500">· {v.manager_phone}</span>}
+            </dd>
             <dt className="text-slate-500">Check-in</dt>
             <dd>{fmtDateTime(v.checkin_at)}</dd>
             <dt className="text-slate-500">Check-out</dt>
@@ -155,6 +157,21 @@ export default function VisitView() {
                 <dd className={v.checkin_distance_m != null && v.checkin_distance_m > v.radius_m ? 'font-semibold text-red-600' : ''}>
                   {v.checkin_distance_m != null ? `${fmtDistance(v.checkin_distance_m)} from centre` : 'Centre location was set by this check-in'}
                 </dd>
+              </>
+            )}
+            {v.count_done_at && (
+              <>
+                <dt className="text-slate-500">First count</dt>
+                <dd>
+                  {fmtDateTime(v.count_done_at)}
+                  {v.pending_at_count != null && ` · ${v.pending_at_count} not shown at that point`}
+                </dd>
+              </>
+            )}
+            {v.missing_explanation && (
+              <>
+                <dt className="text-slate-500">Manager's explanation (not shown)</dt>
+                <dd className="font-medium text-red-800">{v.missing_explanation}</dd>
               </>
             )}
             {v.general_remarks && (
@@ -208,37 +225,94 @@ export default function VisitView() {
         )}
       </div>
 
+      {d.locations.length > 0 && (
+        <>
+          <h2 className="mt-8 mb-3 font-semibold">Other places tractors were shown at ({d.locations.length})</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {d.locations.map((l) => (
+              <Card key={l.id} className="p-3 text-sm">
+                <div className="font-medium">📍 {l.name}</div>
+                <div className="text-slate-600">{[l.kind, l.address].filter(Boolean).join(' · ')}</div>
+                <div className="text-xs text-slate-500">
+                  Checked in {fmtDateTime(l.arrived_at)}
+                  {l.distance_m != null && ` · ${fmtDistance(l.distance_m)} from the centre`} · {d.tractors.filter((t) => t.location_id === l.id).length} tractors
+                </div>
+                <div className="mt-2 flex gap-1">
+                  {d.photos
+                    .filter((p) => p.location_id === l.id)
+                    .map((p) => (
+                      <button key={p.id} onClick={() => setZoom(p)}>
+                        <img src={photoUrl(p.id)} alt={l.name} loading="lazy" className="h-16 w-16 rounded object-cover ring-1 ring-slate-200" />
+                      </button>
+                    ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+
       <h2 className="mt-8 mb-3 font-semibold">Tractors ({d.tractors.length})</h2>
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500 uppercase">
             <tr>
-              <th className="px-3 py-2">Reg. no (inventory)</th>
-              <th className="px-3 py-2">Chassis (inventory)</th>
-              <th className="px-3 py-2">RC seen</th>
+              <th className="px-3 py-2">Reg. no (records)</th>
+              <th className="px-3 py-2">Chassis (records)</th>
+              <th className="px-3 py-2">Plate seen</th>
               <th className="px-3 py-2">Chassis seen</th>
+              <th className="px-3 py-2">Engine seen</th>
+              <th className="px-3 py-2">Where</th>
+              <th className="px-3 py-2">Meter</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Remarks</th>
               <th className="px-3 py-2">Photos</th>
             </tr>
           </thead>
           <tbody>
             {d.tractors.map((t) => {
-              const cmp = t.source === 'inventory' ? compareChassis(t.chassis_no, t.verified_chassis) : 'match';
+              const related = t.related_id ? d.tractors.find((x) => x.id === t.related_id) : null;
+              const loc = t.location_id ? d.locations.find((l) => l.id === t.location_id) : null;
+              const unit = t.meter_unit === 'hours' ? 'h' : 'km';
               return (
                 <tr key={t.id} className="border-b border-slate-100 align-top last:border-0">
-                  <td className="px-3 py-2 font-mono text-xs">{t.source === 'extra' ? <em className="text-slate-400">not listed</em> : t.reg_no}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{t.source === 'extra' ? <em className="text-slate-400">not in records</em> : t.reg_no}</td>
                   <td className="px-3 py-2 font-mono text-xs">{t.source === 'extra' ? '' : t.chassis_no}</td>
                   <td className="px-3 py-2 font-mono text-xs">{t.verified_reg}</td>
-                  <td className={`px-3 py-2 font-mono text-xs ${cmp !== 'match' && cmp !== 'empty' ? 'text-amber-700' : ''}`}>{t.verified_chassis}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{t.verified_chassis}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{t.seen_engine}</td>
+                  <td className="px-3 py-2 text-xs">{t.status === 'not_found' || t.status === 'pending' ? '' : loc ? `📍 ${loc.name}` : 'Centre'}</td>
+                  <td className="px-3 py-2 text-xs whitespace-nowrap">
+                    {t.meter_reading != null && (
+                      <>
+                        <div>
+                          {t.meter_reading} {unit}
+                        </div>
+                        {t.prev_meter != null && (
+                          <div className="text-slate-500">
+                            prev {t.prev_meter} on {fmtDate(t.prev_date ?? '')}
+                            {t.meter_diff != null && ` (${t.meter_diff >= 0 ? '+' : ''}${t.meter_diff})`}
+                          </div>
+                        )}
+                        {t.meter_flag && <div className="font-semibold text-red-600">⚠ {METER_FLAG_LABEL[t.meter_flag]}</div>}
+                        {t.prev_meter == null && <div className="text-slate-400">first reading</div>}
+                      </>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     <TractorBadge status={t.status} />
+                    {related && (
+                      <div className="mt-1 max-w-48 text-xs text-amber-700">
+                        {t.related_reason === 'near_chassis'
+                          ? `Chassis close to ${related.chassis_no} (${related.reg_no ?? ''}) in records – auditor re-typed it. Check the photo.`
+                          : `Plate matches ${related.reg_no} in records, but the chassis is different.`}
+                      </div>
+                    )}
+                    {t.remarks && <div className="mt-1 max-w-48 text-xs">{t.remarks}</div>}
                   </td>
-                  <td className="max-w-48 px-3 py-2 text-xs">{t.remarks}</td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1">
                       {photosOf(t).map((p) => (
-                        <button key={p.id} onClick={() => setZoom(p)} className="shrink-0" aria-label={`${p.kind} photo`}>
+                        <button key={p.id} onClick={() => setZoom(p)} className="shrink-0" aria-label={`${p.kind === 'other' ? 'meter' : p.kind} photo`}>
                           <img src={photoUrl(p.id)} alt="" loading="lazy" className="h-12 w-12 rounded object-cover ring-1 ring-slate-200" />
                         </button>
                       ))}

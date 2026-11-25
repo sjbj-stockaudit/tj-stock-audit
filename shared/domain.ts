@@ -149,3 +149,26 @@ export function facilityProblem(row: { rating: string | null; remarks: string | 
   if ((row.rating === 'poor' || row.rating === 'na') && !row.remarks?.trim()) return 'remark needed';
   return null;
 }
+
+/** Movement allowed between two weekly meter readings before it is flagged (1 km or 1 hour). */
+export const METER_TOLERANCE = 1;
+export type MeterFlag = 'moved' | 'went_down' | 'unit_changed' | null;
+
+/** Compare this week's meter reading with the last one recorded for the same chassis. */
+export function meterCheck(
+  prev: number | null | undefined,
+  prevUnit: string | null | undefined,
+  cur: number | null | undefined,
+  curUnit: string | null | undefined,
+): { diff: number | null; flag: MeterFlag } {
+  if (prev == null || cur == null) return { diff: null, flag: null };
+  if ((prevUnit ?? 'km') !== (curUnit ?? 'km')) return { diff: null, flag: 'unit_changed' };
+  const diff = Math.round((cur - prev) * 10) / 10;
+  return { diff, flag: diff < 0 ? 'went_down' : diff > METER_TOLERANCE ? 'moved' : null };
+}
+
+export const METER_FLAG_LABEL: Record<Exclude<MeterFlag, null>, string> = {
+  moved: 'Used / moved since last audit',
+  went_down: 'Reading lower than last audit',
+  unit_changed: 'Different meter unit from last audit',
+};

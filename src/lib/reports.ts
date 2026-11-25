@@ -2,9 +2,9 @@ import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
 import { autoTable } from 'jspdf-autotable';
-import { FACILITY_RATING_LABEL, TRACTOR_STATUS_LABEL } from '../../shared/domain';
+import { FACILITY_RATING_LABEL, METER_FLAG_LABEL, TRACTOR_STATUS_LABEL } from '../../shared/domain';
 import { api, fetchBlob } from './api';
-import { fmtDate, fmtDateTime, safeName } from './format';
+import { fmtDate, fmtDateTime, fmtDistance, safeName } from './format';
 import type { Photo, Settings, Tractor, VisitDetail } from './types';
 
 // ------------------------------------------------------------------ helpers
@@ -21,6 +21,20 @@ export function saveBlob(blob: Blob, filename: string) {
 }
 
 const tractorName = (t: Tractor) => t.verified_reg || t.reg_no || t.verified_chassis || t.chassis_no || `Tractor-${t.id}`;
+const placeOf = (d: VisitDetail, t: Tractor) =>
+  t.status === 'not_found' || t.status === 'pending' ? '' : t.location_id ? d.locations.find((l) => l.id === t.location_id)?.name ?? 'Other place' : 'Centre';
+const meterText = (t: Tractor) => (t.meter_reading == null ? '' : `${t.meter_reading} ${t.meter_unit === 'hours' ? 'hours' : 'km'}`);
+const prevText = (t: Tractor) => (t.prev_meter == null ? (t.meter_reading == null ? '' : 'First reading') : `${t.prev_meter} (${fmtDate(t.prev_date ?? '')})`);
+/** Remarks plus automatic notes: look-alike chassis, plate of another stock tractor, meter movement. */
+function autoRemarks(d: VisitDetail, t: Tractor) {
+  const notes: string[] = [];
+  const rel = t.related_id ? d.tractors.find((x) => x.id === t.related_id) : null;
+  if (rel && t.related_reason === 'near_chassis') notes.push(`Chassis close to ${rel.chassis_no} (${rel.reg_no ?? ''}) in records – re-checked by auditor`);
+  if (rel && t.related_reason === 'same_plate') notes.push(`Plate ${rel.reg_no} is in records with a different chassis (${rel.chassis_no})`);
+  if (t.meter_flag) notes.push(METER_FLAG_LABEL[t.meter_flag]);
+  if (t.remarks) notes.push(t.remarks);
+  return notes.join('; ');
+}
 const baseName = (d: VisitDetail) => `${safeName(d.visit.centre_name)}_${d.visit.audit_date}`;
 
 export function summarise(d: VisitDetail) {
@@ -110,9 +124,9 @@ export function addLogoRows(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, logos: 
 function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos?: Logos, sheetName?: string) {
   const v = d.visit;
   const ws = wb.addWorksheet((sheetName ?? v.centre_name).slice(0, 31));
-  ws.columns = [{ width: 24 }, { width: 22 }, { width: 24 }, { width: 28 }, { width: 40 }];
+  ws.columns = [{ width: 24 }, { width: 22 }, { width: 24 }, { width: 28 }, { width: 40 }, { width: 20 }, { width: 18 }, { width: 16 }, { width: 20 }, { width: 12 }];
   ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } };
-  addLogoRows(wb, ws, logos, 4.15);
+  addLogoRows(wb, ws, logos, 8.4);
   const top = ws.addRow(['Physical stock count and reconciliation and Chassis number verification']);
   top.font = { bold: true, size: 13 };
   ws.mergeCells(top.number, 1, top.number, 5);
@@ -138,6 +152,11 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
       'Chassis Number (as verified by the auditor)',
       'Status: Verified / Chassis Number Mismatch / Not Found',
       'Remarks',
+      'Engine Number (as seen)',
+      'Where shown',
+      'Meter reading',
+      'Previous reading (date)',
+      'Difference',
     ]),
   );
   for (const t of d.tractors) {
@@ -146,16 +165,22 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
       t.status === 'not_found' ? '' : t.verified_reg ?? t.reg_no ?? '',
       t.status === 'not_found' ? '' : t.verified_chassis ?? '',
       v.outcome === 'not_done' && t.status === 'pending' ? 'Not audited' : TRACTOR_STATUS_LABEL[t.status],
-      t.remarks || (t.source === 'inventory' && t.status === 'not_found' ? `Listed as ${t.reg_no ?? ''}` : 'NA'),
+      autoRemarks(d, t) || (t.source === 'inventory' && t.status === 'not_found' ? `Listed as ${t.reg_no ?? ''}` : 'NA'),
+      t.status === 'not_found' ? '' : t.seen_engine ?? '',
+      placeOf(d, t),
+      meterText(t),
+      prevText(t),
+      t.meter_diff ?? '',
     ]);
     row.eachCell({ includeEmpty: true }, (c, col) => {
       c.border = thin;
-      c.alignment = { vertical: 'middle', wrapText: col === 5 };
+      c.alignment = { vertical: 'middle', wrapText: col === 5 || col === 7 };
       // keep long chassis numbers as text so Excel does not turn them into 9.3E+11
-      if (col <= 3) c.numFmt = '@';
+      if (col <= 3 || col === 6) c.numFmt = '@';
     });
     const fill = STATUS_FILL[t.status];
     if (fill) row.getCell(4).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+    if (t.meter_flag) row.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
   }
 
   const sum = summarise(d);
@@ -167,14 +192,29 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
     ['Chassis number mismatch', sum.mismatch.length],
     ['Short (in inventory, not found)', sum.short.length],
     ['Extra (found, not in inventory)', sum.extra.length],
+    ...(v.pending_at_count != null ? ([['Not shown at first count (before other places)', v.pending_at_count]] as [string, number][]) : []),
+    ...(d.locations.length ? ([['Shown at other places', d.tractors.filter((t) => t.location_id).length]] as [string, number][]) : []),
+    ['Meter reading flagged', d.tractors.filter((t) => t.meter_flag).length],
   ];
   for (const l of lines) ws.addRow(l).eachCell((c) => (c.border = thin));
+  if (v.missing_explanation) {
+    const r = ws.addRow(["Manager's explanation for tractors not shown:", v.missing_explanation]);
+    ws.mergeCells(r.number, 2, r.number, 5);
+    r.getCell(1).font = { bold: true };
+    r.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+  }
+  if (d.locations.length) {
+    ws.addRow([]);
+    styleHeader(ws.addRow(['Other place', 'Type', 'Address', 'Distance from centre', 'Checked in']));
+    for (const l of d.locations)
+      ws.addRow([l.name, l.kind ?? '', l.address ?? '', l.distance_m != null ? fmtDistance(l.distance_m) : '', fmtDateTime(l.arrived_at)]).eachCell((c) => (c.border = thin));
+  }
 
   if (sum.short.length || sum.extra.length) {
     ws.addRow([]);
     styleHeader(ws.addRow(['Short / Extra', 'Registration No', 'Chassis No', 'Engine No', 'Remarks']));
     for (const t of sum.short) ws.addRow(['Short', t.reg_no, t.chassis_no, t.engine_no, t.remarks ?? '']).eachCell((c) => (c.border = thin));
-    for (const t of sum.extra) ws.addRow(['Extra', t.reg_no, t.chassis_no, '', t.remarks ?? '']).eachCell((c) => (c.border = thin));
+    for (const t of sum.extra) ws.addRow(['Extra', t.reg_no, t.chassis_no, t.seen_engine ?? '', autoRemarks(d, t)]).eachCell((c) => (c.border = thin));
   }
 
   ws.addRow([]);
@@ -201,7 +241,7 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
   }
 
   ws.addRow([]);
-  ws.addRow(['Name of Auditor:', v.auditor_name ?? '', '', 'Name of Manager:', v.manager_name ?? '']);
+  ws.addRow(['Name of Auditor:', v.auditor_name ?? '', '', 'Name of Manager:', `${v.manager_name ?? ''}${v.manager_phone ? ` (${v.manager_phone})` : ''}`]);
   ws.addRow(['Check-in:', fmtDateTime(v.checkin_at), '', 'Check-out:', fmtDateTime(v.checkout_at)]);
   if (v.general_remarks) ws.addRow(['General remarks:', v.general_remarks]);
   return ws;
@@ -312,7 +352,9 @@ function photoPdf(
       ['Audit date', fmtDate(v.audit_date)],
       ['Verified by', s.firm_name],
       ['Auditor', v.auditor_name ?? ''],
-      ['Outlet manager', v.manager_name ?? ''],
+      ['Outlet manager', `${v.manager_name ?? ''}${v.manager_phone ? ` · ${v.manager_phone}` : ''}`],
+      ...(v.count_done_at ? [['First count', `${fmtDateTime(v.count_done_at)}${v.pending_at_count != null ? ` · ${v.pending_at_count} not shown at that point` : ''}`]] : []),
+      ...(v.missing_explanation ? [["Manager's explanation (not shown)", v.missing_explanation]] : []),
       ['Check-in', fmtDateTime(v.checkin_at)],
       ['Check-out', fmtDateTime(v.checkout_at)],
       ...(v.general_remarks ? [['General remarks', v.general_remarks]] : []),
@@ -342,7 +384,17 @@ function photoPdf(
     autoTable(pdf, { ...base, startY: y, head: [columns], body: rows.map((r) => r.map((c) => (c ?? '') as string)) });
   };
   listTable('Short tractors – in inventory, not physically present', ['Registration No', 'Chassis No', 'Engine No', 'Remarks'], sum.short.map((t) => [t.reg_no, t.chassis_no, t.engine_no, t.remarks]));
-  listTable('Extra tractors – physically present, not in inventory', ['Registration No', 'Chassis No', 'Remarks'], sum.extra.map((t) => [t.reg_no, t.chassis_no, t.remarks]));
+  listTable('Extra tractors – physically present, not in inventory', ['Registration No', 'Chassis No', 'Engine No', 'Remarks'], sum.extra.map((t) => [t.reg_no, t.chassis_no, t.seen_engine ?? '', autoRemarks(d, t)]));
+  listTable(
+    'Other places tractors were shown at',
+    ['Place', 'Type', 'Address', 'Distance', 'Checked in', 'Tractors'],
+    d.locations.map((l) => [l.name, l.kind, l.address, l.distance_m != null ? fmtDistance(l.distance_m) : '', fmtDateTime(l.arrived_at), d.tractors.filter((t) => t.location_id === l.id).length]),
+  );
+  listTable(
+    'Meter readings',
+    ['Registration No', 'Chassis No', 'This audit', 'Previous (date)', 'Difference', 'Flag'],
+    d.tractors.filter((t) => t.meter_reading != null).map((t) => [t.verified_reg ?? t.reg_no, t.verified_chassis ?? t.chassis_no, meterText(t), prevText(t), t.meter_diff ?? '', t.meter_flag ? METER_FLAG_LABEL[t.meter_flag] : '']),
+  );
   listTable('Chassis number mismatches', ['Registration No', 'Chassis No (records)', 'Chassis No (found)', 'Remarks'], sum.mismatch.map((t) => [t.reg_no, t.chassis_no, t.verified_chassis, t.remarks]));
   if (d.facility.length) {
     y = section('Facility condition', after() + 8);
@@ -368,17 +420,23 @@ function photoPdf(
     if (img) entries.push({ caption: `Storefront – ${v.centre_name}`, sub: `Taken: ${fmtDateTime(p.taken_at)}`, img });
   }
   for (const t of d.tractors) {
-    const ps = d.photos.filter((p) => p.tractor_id === t.id).sort((a, b) => (a.kind === 'chassis' ? -1 : b.kind === 'chassis' ? 1 : 0));
+    const order = { chassis: 0, tractor: 1, other: 2 } as Record<string, number>;
+    const ps = d.photos.filter((p) => p.tractor_id === t.id).sort((a, b) => (order[a.kind] ?? 3) - (order[b.kind] ?? 3));
     for (const p of ps) {
       const img = imgs.get(p.id);
       if (img)
         entries.push({
-          caption: `${tractorName(t)} – ${p.kind === 'chassis' ? 'Chassis number' : 'Tractor'}`,
+          caption: `${tractorName(t)} – ${p.kind === 'chassis' ? 'Chassis number' : p.kind === 'tractor' ? 'Tractor' : `Meter (${meterText(t)})`}`,
           sub: `Chassis: ${t.verified_chassis || t.chassis_no || '—'}   Status: ${TRACTOR_STATUS_LABEL[t.status]}   Taken: ${fmtDateTime(p.taken_at)}`,
           img,
         });
     }
   }
+  for (const l of d.locations)
+    for (const p of d.photos.filter((x) => x.location_id === l.id)) {
+      const img = imgs.get(p.id);
+      if (img) entries.push({ caption: `Other place – ${l.name}`, sub: `${l.kind ?? ''}  ${l.address ?? ''}  Checked in: ${fmtDateTime(l.arrived_at)}`, img });
+    }
   for (const a of d.accessories)
     for (const p of d.photos.filter((x) => x.accessory_id === a.id)) {
       const img = imgs.get(p.id);
@@ -450,7 +508,7 @@ async function addCentreToZip(folder: JSZip, d: VisitDetail, s: Settings, onProg
   for (const t of d.tractors)
     for (const p of d.photos.filter((x) => x.tractor_id === t.id)) {
       const img = imgs.get(p.id);
-      if (img) folder.file(`photos/${unique(`${safeName(tractorName(t))}${p.kind === 'tractor' ? '_tractor' : ''}.${ext(p)}`)}`, img.bytes);
+      if (img) folder.file(`photos/${unique(`${safeName(tractorName(t))}${p.kind === 'tractor' ? '_tractor' : p.kind === 'other' ? '_meter' : ''}.${ext(p)}`)}`, img.bytes);
     }
   for (const p of d.photos.filter((x) => x.kind === 'storefront')) {
     const img = imgs.get(p.id);
@@ -508,8 +566,10 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
   summary.addRow([]);
   styleHeader(summary.addRow(['Date', 'Centre', 'State', 'Auditor', 'Inventory', 'Verified', 'Mismatch', 'Short', 'Extra', 'Manager', 'Facility: areas rated Poor', 'Outcome']));
   const all = wb.addWorksheet('Full inventory');
-  all.columns = [12, 16, 16, 22, 22, 22, 26, 30].map((width) => ({ width }));
-  styleHeader(all.addRow(['Date', 'Centre', 'Registration No (inventory)', 'Chassis No (inventory)', 'RC No (verified)', 'Chassis No (verified)', 'Status', 'Remarks']));
+  all.columns = [12, 16, 16, 22, 22, 22, 26, 30, 16, 16, 18, 12].map((width) => ({ width }));
+  styleHeader(
+    all.addRow(['Date', 'Centre', 'Registration No (inventory)', 'Chassis No (inventory)', 'RC No (verified)', 'Chassis No (verified)', 'Status', 'Remarks', 'Where shown', 'Meter reading', 'Previous reading (date)', 'Difference']),
+  );
 
   const sheetNames = new Set<string>();
   for (const d of details) {
@@ -539,9 +599,14 @@ export async function downloadConsolidated(ids: number[], label: string, onProgr
         t.verified_reg,
         t.verified_chassis,
         d.visit.outcome === 'not_done' && t.status === 'pending' ? 'Not audited' : TRACTOR_STATUS_LABEL[t.status],
-        t.remarks ?? '',
+        autoRemarks(d, t),
+        placeOf(d, t),
+        meterText(t),
+        prevText(t),
+        t.meter_diff ?? '',
       ]);
       row.eachCell({ includeEmpty: true }, (c) => (c.border = thin));
+      if (t.meter_flag) row.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
       const fill = STATUS_FILL[t.status];
       if (fill) row.getCell(7).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
     }

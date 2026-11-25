@@ -15,9 +15,11 @@ import {
   DEFAULT_FACILITY_AREAS,
   centreKey,
   distanceMetres,
+  compareChassis,
   facilityProblem,
   idKey,
   isShortMapsLink,
+  meterCheck,
   parseCoords,
   type PhotoKind,
   type Role,
@@ -34,6 +36,9 @@ type Visit = {
   auditor_signature_key: string | null;
   manager_signature_key: string | null;
   checkin_selfie_key: string | null;
+  checkin_at: string | null;
+  count_done_at: string | null;
+  missing_explanation: string | null;
 };
 
 const app = new Hono<AppEnv>().basePath('/api');
@@ -464,7 +469,10 @@ app.get('/visits', requireRole('admin', 'auditor', 'client'), async (c) => {
      ORDER BY v.audit_date DESC, ce.name LIMIT 1000`,
   )
     .bind(...vals)
-    .all();
+    .all<Record<string, unknown>>();
+  // Blind count: auditors never see how many tractors the stock list has
+  if (user.role === 'auditor')
+    for (const r of results) for (const k of ['inventory_count', 'pending_count', 'verified_count', 'mismatch_count', 'not_found_count', 'extra_count']) r[k] = null;
   return c.json(results);
 });
 
@@ -472,9 +480,10 @@ app.get('/visits/:id', requireRole(), async (c) => {
   const v = await visitFor(c, Number(c.req.param('id')), 'read');
   if (v instanceof Response) return v;
   const db = c.env.DB;
-  const isAdmin = c.get('user').role === 'admin';
+  const role = c.get('user').role;
+  const isAdmin = role === 'admin';
   if (v.status === 'in_progress' || v.status === 'returned') await ensureFacility(c, v.id);
-  const [visit, tractors, accessories, photos, pings, facility] = await db.batch([
+  const [visit, tractors, accessories, photos, pings, facility, locs] = await db.batch([
     db.prepare(
       `SELECT v.*, ce.name AS centre_name, ce.state, ce.address, ce.lat, ce.lng, ce.radius_m,
               ce.manager_name AS centre_manager, ce.manager_phone AS centre_manager_phone, ce.opening_hours, ce.weekly_off,
@@ -484,9 +493,14 @@ app.get('/visits/:id', requireRole(), async (c) => {
     ).bind(v.id),
     db.prepare("SELECT * FROM tractors WHERE visit_id = ? ORDER BY source = 'extra', sort_order, id").bind(v.id),
     db.prepare('SELECT * FROM accessories WHERE visit_id = ? ORDER BY id').bind(v.id),
-    db.prepare('SELECT id, tractor_id, accessory_id, facility_id, kind, lat, lng, taken_at FROM photos WHERE visit_id = ? ORDER BY id').bind(v.id),
+    db.prepare('SELECT id, tractor_id, accessory_id, facility_id, location_id, kind, lat, lng, taken_at FROM photos WHERE visit_id = ? ORDER BY id').bind(v.id),
     db.prepare(isAdmin ? 'SELECT lat, lng, accuracy, at FROM location_pings WHERE visit_id = ? ORDER BY at' : 'SELECT 1 WHERE 0 AND ?').bind(v.id),
     db.prepare('SELECT id, area, sort_order, is_custom, rating, remarks FROM facility_checks WHERE visit_id = ? ORDER BY sort_order, id').bind(v.id),
+    db.prepare(
+      role === 'client'
+        ? 'SELECT id, name, kind, address, distance_m, arrived_at FROM visit_locations WHERE visit_id = ? ORDER BY id'
+        : 'SELECT * FROM visit_locations WHERE visit_id = ? ORDER BY id',
+    ).bind(v.id),
   ]);
   const row = visit.results[0] as Record<string, unknown>;
   if (c.get('user').role === 'client') {
@@ -504,8 +518,12 @@ app.get('/visits/:id', requireRole(), async (c) => {
       has_manager_signature: !!v.manager_signature_key,
       // The check-in selfie is an internal control: never shown to the client
       has_checkin_selfie: c.get('user').role !== 'client' && !!v.checkin_selfie_key,
+      // Blind count: the auditor only learns how many were not shown, after finishing the count
+      pending_at_count: role === 'auditor' ? undefined : row.pending_at_count,
+      same_day_open: auditDayOpen(v),
     },
-    tractors: tractors.results,
+    tractors: role === 'auditor' ? auditorView(tractors.results as TractorRow[]) : await withPreviousMeter(c, v, tractors.results as TractorRow[]),
+    locations: locs.results,
     accessories: accessories.results,
     photos: photos.results,
     pings: pings.results,
@@ -539,6 +557,7 @@ app.delete('/visits/:id', requireRole('admin'), async (c) => {
     c.env.DB.prepare('DELETE FROM photos WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM accessories WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM facility_checks WHERE visit_id = ?').bind(id),
+    c.env.DB.prepare('DELETE FROM visit_locations WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM tractors WHERE visit_id = ?').bind(id),
     c.env.DB.prepare('DELETE FROM visits WHERE id = ?').bind(id),
   ]);
@@ -620,40 +639,238 @@ app.post('/visits/:id/pings', requireRole('auditor'), async (c) => {
   return c.json({ ok: true, tracking: true });
 });
 
-// ---------------------------------------------------------------- tractors
+// ---------------------------------------------------------------- tractors (blind count)
+//
+// The auditor never sees the stock list. They record every tractor they are shown (chassis, plate, engine,
+// meter reading, photos) and the server matches each one to the list in the background:
+//   chassis matches a stock row            -> that row is "verified"
+//   chassis close to a stock row (typo?)   -> auditor must re-type it once; if repeated, it is an "extra" flagged for the office
+//   anything else                          -> "extra" (plate matching a stock row with another chassis is flagged too)
+// Stock rows nobody showed become "not found" (short) when the audit is submitted.
+
+type TractorRow = Record<string, unknown> & {
+  id: number;
+  visit_id: number;
+  source: string;
+  status: string;
+  reg_no: string | null;
+  chassis_no: string | null;
+  chassis_key: string | null;
+  meter_reading: number | null;
+  meter_unit: string | null;
+};
+
+/** Calendar date in India for an ISO timestamp. */
+const istDate = (iso: string) => new Date(Date.parse(iso) + 5.5 * 3600_000).toISOString().slice(0, 10);
+
+/** Tractors can only be recorded on the day the auditor checked in – the audit closes the same day. */
+function auditDayOpen(v: Visit) {
+  return !v.checkin_at || istDate(v.checkin_at) === istDate(now());
+}
+const DAY_OVER = 'The audit day is over – tractors can only be recorded on the day of check-in. Submit the audit now; tractors not shown will be reported as short.';
+
+/** What an auditor may see: only the tractors they recorded, never the stock list. */
+function auditorView(rows: TractorRow[]) {
+  return rows
+    .filter((t) => t.status !== 'pending' && t.status !== 'not_found')
+    .map((t) => ({
+      id: t.id,
+      source: 'seen',
+      status: 'recorded',
+      reg_no: t.verified_reg,
+      chassis_no: t.verified_chassis,
+      engine_no: t.seen_engine,
+      meter_reading: t.meter_reading,
+      meter_unit: t.meter_unit,
+      location_id: t.location_id,
+      seen_at: t.seen_at,
+    }));
+}
+
+/** Add the last reading recorded for the same chassis in an earlier audit, and flag movement. */
+async function withPreviousMeter(c: C, v: Visit, rows: TractorRow[]) {
+  const { results } = await c.env.DB.prepare(
+    `SELECT t.chassis_key, t.meter_reading, t.meter_unit, vv.audit_date, ce.name AS centre
+     FROM tractors t JOIN visits vv ON vv.id = t.visit_id JOIN centres ce ON ce.id = vv.centre_id
+     WHERE t.chassis_key IN (SELECT chassis_key FROM tractors WHERE visit_id = ? AND chassis_key IS NOT NULL)
+       AND t.visit_id != ? AND t.meter_reading IS NOT NULL AND vv.status IN ('submitted', 'approved')
+       AND (vv.audit_date < ? OR (vv.audit_date = ? AND vv.id < ?))
+     ORDER BY vv.audit_date DESC, vv.id DESC`,
+  )
+    .bind(v.id, v.id, v.audit_date, v.audit_date, v.id)
+    .all<{ chassis_key: string; meter_reading: number; meter_unit: string | null; audit_date: string; centre: string }>();
+  const last = new Map<string, (typeof results)[number]>();
+  for (const r of results) if (!last.has(r.chassis_key)) last.set(r.chassis_key, r);
+  return rows.map((t) => {
+    const p = t.chassis_key ? last.get(t.chassis_key) : undefined;
+    if (!p) return t;
+    const m = meterCheck(p.meter_reading, p.meter_unit, t.meter_reading, t.meter_unit);
+    return { ...t, prev_meter: p.meter_reading, prev_meter_unit: p.meter_unit, prev_date: p.audit_date, prev_centre: p.centre, meter_diff: m.diff, meter_flag: m.flag };
+  });
+}
 
 async function tractorFor(c: C, id: number) {
-  const t = await c.env.DB.prepare('SELECT * FROM tractors WHERE id = ?').bind(id).first<{ id: number; visit_id: number; source: string }>();
+  const t = await c.env.DB.prepare('SELECT * FROM tractors WHERE id = ?').bind(id).first<TractorRow>();
   if (!t) return bad(c, 'Tractor not found.', 404);
   const v = await visitFor(c, t.visit_id, 'edit');
   if (v instanceof Response) return v;
-  return t;
+  return { t, v };
 }
 
-app.patch('/tractors/:id', requireRole('auditor', 'admin'), async (c) => {
-  const t = await tractorFor(c, Number(c.req.param('id')));
-  if (t instanceof Response) return t;
+const METER_UNITS = ['km', 'hours'];
+
+app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
+  const v = await visitFor(c, Number(c.req.param('id')), 'edit');
+  if (v instanceof Response) return v;
+  if (!auditDayOpen(v)) return bad(c, DAY_OVER, 409);
+  const b = await c.req.json<Record<string, unknown>>();
+  const reg = str(b.reg_no, 40)?.toUpperCase() ?? null;
+  const chassis = str(b.chassis_no, 60)?.toUpperCase() ?? null;
+  const engine = str(b.engine_no, 60)?.toUpperCase() ?? null;
+  const key = idKey(chassis);
+  if (key.length < 5) return bad(c, 'Enter the full chassis number punched on the tractor.');
+  const meter = num(b.meter_reading);
+  if (meter === null || meter < 0) return bad(c, 'Enter the meter reading.');
+  const unit = METER_UNITS.includes(String(b.meter_unit)) ? String(b.meter_unit) : 'km';
+  const locationId = num(b.location_id);
+  if (locationId) {
+    const l = await c.env.DB.prepare('SELECT 1 FROM visit_locations WHERE id = ? AND visit_id = ?').bind(locationId, v.id).first();
+    if (!l) return bad(c, 'Location not found in this visit.');
+  }
+  const { results: rows } = await c.env.DB.prepare('SELECT * FROM tractors WHERE visit_id = ?').bind(v.id).all<TractorRow>();
+  if (rows.some((t) => t.chassis_key === key)) return bad(c, 'This chassis number is already recorded in this audit.', 409);
+
+  const pending = rows.filter((t) => t.source === 'inventory' && t.status === 'pending');
+  const exact = pending.find((t) => idKey(t.chassis_no) === key);
+  // A typed chassis that is close to (but not exactly) a stock one: ask for it to be re-typed, without revealing anything.
+  const confirmed = !!b.confirm_chassis && idKey(b.confirm_chassis) === key;
+  const near = exact ? undefined : pending.find((t) => compareChassis(t.chassis_no, chassis) === 'near');
+  if (near && !confirmed)
+    return c.json({ error: 'Please check the chassis number on the tractor again and type it once more.', retype: true }, 409);
+  const retyped = b.confirm_chassis ? 1 : null;
+  const at = now();
+  let id: number;
+  if (exact) {
+    await c.env.DB.prepare(
+      `UPDATE tractors SET status = 'verified', verified_reg = ?, verified_chassis = ?, seen_engine = ?, meter_reading = ?, meter_unit = ?,
+         location_id = ?, seen_at = ?, chassis_key = ?, retyped = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(reg, chassis, engine, meter, unit, locationId, at, key, retyped, at, exact.id)
+      .run();
+    id = exact.id;
+  } else {
+    const samePlate = reg ? pending.find((t) => idKey(t.reg_no) && idKey(t.reg_no) === idKey(reg)) : undefined;
+    const related = near ?? samePlate;
+    const res = await c.env.DB.prepare(
+      `INSERT INTO tractors (visit_id, source, sort_order, reg_no, chassis_no, engine_no, verified_reg, verified_chassis, seen_engine, status,
+         meter_reading, meter_unit, location_id, seen_at, chassis_key, related_id, related_reason, retyped, updated_at)
+       VALUES (?, 'extra', 100000, ?, ?, ?, ?, ?, ?, 'extra', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+      .bind(v.id, reg, chassis, engine, reg, chassis, engine, meter, unit, locationId, at, key, related?.id ?? null,
+        near ? 'near_chassis' : samePlate ? 'same_plate' : null, retyped, at)
+      .run();
+    id = res.meta.last_row_id;
+  }
+  const row = await c.env.DB.prepare('SELECT * FROM tractors WHERE id = ?').bind(id).first<TractorRow>();
+  return c.json(auditorView([row!])[0]);
+});
+
+/** Remove a tractor the auditor recorded by mistake (its stock row, if any, goes back to "not yet shown"). */
+app.delete('/tractors/:id', requireRole('auditor', 'admin'), async (c) => {
+  const r = await tractorFor(c, Number(c.req.param('id')));
+  if (r instanceof Response) return r;
+  const { t, v } = r;
+  if (c.get('user').role === 'auditor' && !auditDayOpen(v)) return bad(c, DAY_OVER, 409);
+  await deletePhotos(c, 'tractor_id = ?', t.id);
+  if (t.source === 'extra') await c.env.DB.prepare('DELETE FROM tractors WHERE id = ?').bind(t.id).run();
+  else
+    await c.env.DB.prepare(
+      `UPDATE tractors SET status = 'pending', verified_reg = NULL, verified_chassis = NULL, seen_engine = NULL, meter_reading = NULL,
+         meter_unit = NULL, location_id = NULL, seen_at = NULL, chassis_key = NULL, retyped = NULL, updated_at = ? WHERE id = ?`,
+    )
+      .bind(now(), t.id)
+      .run();
+  return c.json({ ok: true });
+});
+
+/** Office correction of a tractor row (status / remarks). */
+app.patch('/tractors/:id', requireRole('admin'), async (c) => {
+  const r = await tractorFor(c, Number(c.req.param('id')));
+  if (r instanceof Response) return r;
+  const { t } = r;
   const b = await c.req.json<Record<string, unknown>>();
   const allowed: TractorStatus[] = t.source === 'extra' ? ['extra'] : ['pending', 'verified', 'mismatch', 'not_found'];
   const sets: string[] = ['updated_at = ?'];
   const vals: unknown[] = [now()];
-  if ('verified_reg' in b) (sets.push('verified_reg = ?'), vals.push(str(b.verified_reg, 40)?.toUpperCase() ?? null));
-  if ('verified_chassis' in b) (sets.push('verified_chassis = ?'), vals.push(str(b.verified_chassis, 60)?.toUpperCase() ?? null));
   if ('remarks' in b) (sets.push('remarks = ?'), vals.push(str(b.remarks, 1000)));
   if ('status' in b) {
     if (!allowed.includes(b.status as TractorStatus)) return bad(c, 'Invalid status.');
     sets.push('status = ?');
     vals.push(b.status);
   }
-  if (t.source === 'extra') {
-    if ('reg_no' in b) (sets.push('reg_no = ?'), vals.push(str(b.reg_no, 40)?.toUpperCase() ?? null));
-    if ('chassis_no' in b) (sets.push('chassis_no = ?'), vals.push(str(b.chassis_no, 60)?.toUpperCase() ?? null));
-  }
   await c.env.DB.prepare(`UPDATE tractors SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, t.id).run();
   return c.json(await c.env.DB.prepare('SELECT * FROM tractors WHERE id = ?').bind(t.id).first());
 });
 
-app.post('/visits/:id/tractors', requireRole('auditor', 'admin'), async (c) => {
+/** Auditor has finished counting what was shown: tell them only HOW MANY stock tractors were not shown. */
+app.post('/visits/:id/count-done', requireRole('auditor'), async (c) => {
+  const v = await visitFor(c, Number(c.req.param('id')), 'edit');
+  if (v instanceof Response) return v;
+  const r = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM tractors WHERE visit_id = ? AND source = 'inventory' AND status = 'pending'")
+    .bind(v.id)
+    .first<{ n: number }>();
+  const pending = r?.n ?? 0;
+  // The first count (before any off-site visits) is kept as evidence
+  if (!v.count_done_at)
+    await c.env.DB.prepare('UPDATE visits SET count_done_at = ?, pending_at_count = ? WHERE id = ?').bind(now(), pending, v.id).run();
+  return c.json({ pending, day_open: auditDayOpen(v) });
+});
+
+app.put('/visits/:id/explanation', requireRole('auditor'), async (c) => {
+  const v = await visitFor(c, Number(c.req.param('id')), 'edit');
+  if (v instanceof Response) return v;
+  const b = await c.req.json<{ missing_explanation?: string }>();
+  await c.env.DB.prepare('UPDATE visits SET missing_explanation = ? WHERE id = ?').bind(str(b.missing_explanation, 2000), v.id).run();
+  return c.json({ ok: true });
+});
+
+/** The centre says some tractors are elsewhere: the auditor goes there and checks in with GPS and a photo of the place. */
+app.post('/visits/:id/locations', requireRole('auditor'), async (c) => {
+  const v = await visitFor(c, Number(c.req.param('id')), 'edit');
+  if (v instanceof Response) return v;
+  if (!auditDayOpen(v)) return bad(c, DAY_OVER, 409);
+  const img = await readImage(c);
+  if (img instanceof Response) return img;
+  const { form, file } = img;
+  const name = str(form.get('name'), 120);
+  if (!name) return bad(c, 'Enter the name of the place (e.g. "Sharma service centre").');
+  const lat = num(form.get('lat'));
+  const lng = num(form.get('lng'));
+  if (lat === null || lng === null) return bad(c, 'Turn on location (GPS) to check in at this place.');
+  const centre = await c.env.DB.prepare('SELECT lat, lng FROM centres WHERE id = ?').bind(v.centre_id).first<{ lat: number | null; lng: number | null }>();
+  const distance = centre?.lat != null && centre?.lng != null ? Math.round(distanceMetres(lat, lng, centre.lat, centre.lng)) : null;
+  const at = now();
+  const res = await c.env.DB.prepare(
+    'INSERT INTO visit_locations (visit_id, name, kind, address, lat, lng, accuracy, distance_m, arrived_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  )
+    .bind(v.id, name, str(form.get('kind'), 40), str(form.get('address'), 300), lat, lng, num(form.get('accuracy')), distance, at)
+    .run();
+  const locId = res.meta.last_row_id;
+  const key = `visits/${v.id}/location-${randomToken(8)}.jpg`;
+  await c.env.PHOTOS.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO photos (visit_id, location_id, kind, r2_key, size_bytes, lat, lng, taken_at, uploaded_by) VALUES (?, ?, 'other', ?, ?, ?, ?, ?, ?)`,
+    ).bind(v.id, locId, key, file.size, lat, lng, at, c.get('user').id),
+    c.env.DB.prepare('INSERT INTO location_pings (visit_id, user_id, lat, lng, accuracy, at) VALUES (?, ?, ?, ?, ?, ?)').bind(
+      v.id, c.get('user').id, lat, lng, num(form.get('accuracy')), at,
+    ),
+  ]);
+  return c.json(await c.env.DB.prepare('SELECT * FROM visit_locations WHERE id = ?').bind(locId).first());
+});
+
+/** Office only: add an extra tractor by hand. */
+app.post('/visits/:id/tractors', requireRole('admin'), async (c) => {
   const v = await visitFor(c, Number(c.req.param('id')), 'edit');
   if (v instanceof Response) return v;
   const b = await c.req.json<Record<string, unknown>>();
@@ -661,21 +878,12 @@ app.post('/visits/:id/tractors', requireRole('auditor', 'admin'), async (c) => {
   const chassis = str(b.chassis_no, 60)?.toUpperCase() ?? null;
   if (!reg && !chassis) return bad(c, 'Enter the registration number or the chassis number.');
   const res = await c.env.DB.prepare(
-    `INSERT INTO tractors (visit_id, source, sort_order, reg_no, chassis_no, verified_reg, verified_chassis, status, remarks, updated_at)
-     VALUES (?, 'extra', 100000, ?, ?, ?, ?, 'extra', ?, ?)`,
+    `INSERT INTO tractors (visit_id, source, sort_order, reg_no, chassis_no, verified_reg, verified_chassis, status, remarks, chassis_key, updated_at)
+     VALUES (?, 'extra', 100000, ?, ?, ?, ?, 'extra', ?, ?, ?)`,
   )
-    .bind(v.id, reg, chassis, reg, chassis, str(b.remarks, 1000), now())
+    .bind(v.id, reg, chassis, reg, chassis, str(b.remarks, 1000), idKey(chassis) || null, now())
     .run();
   return c.json(await c.env.DB.prepare('SELECT * FROM tractors WHERE id = ?').bind(res.meta.last_row_id).first());
-});
-
-app.delete('/tractors/:id', requireRole('auditor', 'admin'), async (c) => {
-  const t = await tractorFor(c, Number(c.req.param('id')));
-  if (t instanceof Response) return t;
-  if (t.source !== 'extra') return bad(c, 'Only tractors you added as extra can be removed.');
-  await deletePhotos(c, 'tractor_id = ?', t.id);
-  await c.env.DB.prepare('DELETE FROM tractors WHERE id = ?').bind(t.id).run();
-  return c.json({ ok: true });
 });
 
 // ---------------------------------------------------------------- accessories
@@ -811,8 +1019,10 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
   const img = await readImage(c);
   if (img instanceof Response) return img;
   const { form, file } = img;
-  let kind = String(form.get('kind') ?? 'other') as PhotoKind | 'facility';
-  if (!['chassis', 'tractor', 'accessory', 'storefront', 'facility', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
+  const kind = String(form.get('kind') ?? 'other') as PhotoKind | 'facility' | 'meter';
+  if (!['chassis', 'tractor', 'accessory', 'storefront', 'facility', 'meter', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
+  // Facility and meter photos are stored as "other", linked to their area / tractor
+  const storedKind: PhotoKind = kind === 'facility' || kind === 'meter' ? 'other' : kind;
   const tractorId = num(form.get('tractor_id'));
   const accessoryId = num(form.get('accessory_id'));
   const facilityId = num(form.get('facility_id'));
@@ -820,7 +1030,6 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
     if (!facilityId) return bad(c, 'Choose the facility area for this photo.');
     const f = await c.env.DB.prepare('SELECT 1 FROM facility_checks WHERE id = ? AND visit_id = ?').bind(facilityId, v.id).first();
     if (!f) return bad(c, 'Facility area not found in this visit.');
-    kind = 'other'; // facility photos are stored as "other", linked to their area
   }
   if (tractorId) {
     const t = await c.env.DB.prepare('SELECT 1 FROM tractors WHERE id = ? AND visit_id = ?').bind(tractorId, v.id).first();
@@ -831,6 +1040,7 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
     if (!a) return bad(c, 'Accessory not found in this visit.');
   }
   const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+  if ((kind === 'chassis' || kind === 'tractor' || kind === 'meter') && !tractorId) return bad(c, 'Choose the tractor for this photo.');
   const key = `visits/${v.id}/${kind}-${randomToken(8)}.${ext}`;
   await c.env.PHOTOS.put(key, await file.arrayBuffer(), { httpMetadata: { contentType: file.type } });
   const takenAt = String(form.get('taken_at') ?? '');
@@ -842,8 +1052,8 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
       v.id,
       tractorId,
       accessoryId,
-      kind === 'other' ? facilityId : null,
-      kind,
+      kind === 'facility' ? facilityId : null,
+      storedKind,
       key,
       file.size,
       num(form.get('lat')),
@@ -853,7 +1063,7 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
     )
     .run();
   return c.json(
-    await c.env.DB.prepare('SELECT id, tractor_id, accessory_id, facility_id, kind, lat, lng, taken_at FROM photos WHERE id = ?')
+    await c.env.DB.prepare('SELECT id, tractor_id, accessory_id, facility_id, location_id, kind, lat, lng, taken_at FROM photos WHERE id = ?')
       .bind(res.meta.last_row_id)
       .first(),
   );
@@ -922,7 +1132,7 @@ app.get('/visits/:id/checkin-selfie', requireRole('admin', 'auditor'), async (c)
 async function submissionProblems(c: C, visitId: number, v: Visit): Promise<string[]> {
   const db = c.env.DB;
   const [{ results: tractors }, { results: accessories }, { results: photos }] = await db.batch([
-    db.prepare('SELECT id, reg_no, chassis_no, status FROM tractors WHERE visit_id = ?').bind(visitId),
+    db.prepare('SELECT id, reg_no, chassis_no, verified_reg, verified_chassis, status FROM tractors WHERE visit_id = ?').bind(visitId),
     db.prepare('SELECT id, name FROM accessories WHERE visit_id = ?').bind(visitId),
     db.prepare('SELECT tractor_id, accessory_id, facility_id, kind FROM photos WHERE visit_id = ?').bind(visitId),
   ]);
@@ -930,23 +1140,24 @@ async function submissionProblems(c: C, visitId: number, v: Visit): Promise<stri
     .prepare('SELECT id, area, rating, remarks FROM facility_checks WHERE visit_id = ? ORDER BY sort_order, id')
     .bind(visitId)
     .all<{ id: number; area: string; rating: string | null; remarks: string | null }>();
-  type T = { id: number; reg_no: string | null; chassis_no: string | null; status: string };
+  type T = { id: number; reg_no: string | null; chassis_no: string | null; verified_reg: string | null; verified_chassis: string | null; status: string };
   type P = { tractor_id: number | null; accessory_id: number | null; facility_id: number | null; kind: string };
   const ph = photos as P[];
   const problems: string[] = [];
-  const pending = (tractors as T[]).filter((t) => t.status === 'pending');
-  if (pending.length) problems.push(`${pending.length} tractor(s) have not been checked yet.`);
-  const noPhoto = (tractors as T[]).filter(
-    (t) => t.status !== 'pending' && t.status !== 'not_found' && !ph.some((p) => p.tractor_id === t.id && p.kind === 'chassis'),
-  );
+  const seen = (tractors as T[]).filter((t) => t.status !== 'pending' && t.status !== 'not_found');
+  const label = (t: T) => t.verified_reg || t.verified_chassis || t.reg_no || t.chassis_no;
+  if (!v.count_done_at) problems.push('Tap "Done counting" on the Finish tab first.');
+  else if ((tractors as T[]).some((t) => t.status === 'pending') && !v.missing_explanation?.trim())
+    problems.push("Write the manager's explanation for the tractors not shown.");
+  const noPhoto = seen.filter((t) => !ph.some((p) => p.tractor_id === t.id && p.kind === 'chassis'));
   if (noPhoto.length)
-    problems.push(`Chassis photo missing for: ${noPhoto.slice(0, 5).map((t) => t.reg_no || t.chassis_no).join(', ')}${noPhoto.length > 5 ? '…' : ''}`);
-  const noTractorPhoto = (tractors as T[]).filter(
-    (t) => t.status !== 'pending' && t.status !== 'not_found' && !ph.some((p) => p.tractor_id === t.id && p.kind === 'tractor'),
-  );
+    problems.push(`Chassis photo missing for: ${noPhoto.slice(0, 5).map(label).join(', ')}${noPhoto.length > 5 ? '…' : ''}`);
+  const noMeter = seen.filter((t) => !ph.some((p) => p.tractor_id === t.id && p.kind === 'other'));
+  if (noMeter.length) problems.push(`Meter photo missing for: ${noMeter.slice(0, 5).map(label).join(', ')}${noMeter.length > 5 ? '…' : ''}`);
+  const noTractorPhoto = seen.filter((t) => !ph.some((p) => p.tractor_id === t.id && p.kind === 'tractor'));
   if (noTractorPhoto.length)
     problems.push(
-      `Tractor photo missing for: ${noTractorPhoto.slice(0, 5).map((t) => t.reg_no || t.chassis_no).join(', ')}${noTractorPhoto.length > 5 ? '…' : ''}`,
+      `Tractor photo missing for: ${noTractorPhoto.slice(0, 5).map(label).join(', ')}${noTractorPhoto.length > 5 ? '…' : ''}`,
     );
   const accNoPhoto = (accessories as { id: number; name: string }[]).filter((a) => !ph.some((p) => p.accessory_id === a.id));
   if (accNoPhoto.length) problems.push(`Photo missing for accessories: ${accNoPhoto.map((a) => a.name).join(', ')}`);
@@ -963,17 +1174,23 @@ async function submissionProblems(c: C, visitId: number, v: Visit): Promise<stri
 app.post('/visits/:id/submit', requireRole('auditor'), async (c) => {
   const v = await visitFor(c, Number(c.req.param('id')), 'edit');
   if (v instanceof Response) return v;
-  const b = await c.req.json<{ manager_name?: string; general_remarks?: string; lat?: number; lng?: number }>();
+  const b = await c.req.json<{ manager_name?: string; manager_phone?: string; missing_explanation?: string; general_remarks?: string; lat?: number; lng?: number }>();
   const manager = str(b.manager_name, 100);
+  if (b.missing_explanation !== undefined) {
+    v.missing_explanation = str(b.missing_explanation, 2000);
+    await c.env.DB.prepare('UPDATE visits SET missing_explanation = ? WHERE id = ?').bind(v.missing_explanation, v.id).run();
+  }
   const problems = await submissionProblems(c, v.id, v);
   if (!manager) problems.push("Enter the outlet manager's name.");
   if (problems.length) return c.json({ error: 'The audit is not complete yet.', problems }, 400);
   const at = now();
   await c.env.DB.batch([
     c.env.DB.prepare(
-      `UPDATE visits SET status = 'submitted', manager_name = ?, general_remarks = ?, submitted_at = ?,
+      `UPDATE visits SET status = 'submitted', manager_name = ?, manager_phone = ?, general_remarks = ?, submitted_at = ?,
          checkout_at = ?, checkout_lat = ?, checkout_lng = ? WHERE id = ?`,
-    ).bind(manager, str(b.general_remarks, 2000), at, at, num(b.lat), num(b.lng), v.id),
+    ).bind(manager, str(b.manager_phone, 20), str(b.general_remarks, 2000), at, at, num(b.lat), num(b.lng), v.id),
+    // Whatever was not shown is short
+    c.env.DB.prepare("UPDATE tractors SET status = 'not_found', updated_at = ? WHERE visit_id = ? AND status = 'pending'").bind(at, v.id),
     ...(num(b.lat) !== null && num(b.lng) !== null
       ? [
           c.env.DB.prepare('INSERT INTO location_pings (visit_id, user_id, lat, lng, at) VALUES (?, ?, ?, ?, ?)').bind(
@@ -1003,11 +1220,12 @@ app.post('/visits/:id/review', requireRole('admin'), async (c) => {
   } else if (b.action === 'return') {
     if (v.status !== 'submitted' && v.status !== 'approved') return bad(c, 'Only submitted audits can be returned.', 409);
     if (!str(b.note)) return bad(c, 'Tell the auditor what needs fixing.');
-    await c.env.DB.prepare(
-      "UPDATE visits SET status = 'returned', reviewed_at = ?, reviewed_by = ?, review_note = ?, submitted_at = NULL WHERE id = ?",
-    )
-      .bind(now(), user.id, str(b.note, 1000), id)
-      .run();
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "UPDATE visits SET status = 'returned', reviewed_at = ?, reviewed_by = ?, review_note = ?, submitted_at = NULL WHERE id = ?",
+      ).bind(now(), user.id, str(b.note, 1000), id),
+      c.env.DB.prepare("UPDATE tractors SET status = 'pending' WHERE visit_id = ? AND status = 'not_found'").bind(id),
+    ]);
   } else if (b.action === 'unapprove') {
     if (v.status !== 'approved') return bad(c, 'This audit is not approved.', 409);
     await c.env.DB.prepare("UPDATE visits SET status = 'submitted', reviewed_at = NULL, reviewed_by = NULL WHERE id = ?").bind(id).run();

@@ -52,8 +52,7 @@ function Section({ title, rows, cta, empty, highlight }: { title: string; rows: 
                   <div>
                     <div className="text-base font-semibold">{v.centre_name}</div>
                     <div className="text-xs text-slate-500">
-                      {fmtDate(v.audit_date)} · {t('{n} tractors', { n: v.inventory_count })}
-                      {v.status === 'in_progress' && ` · ${t('{n} checked', { n: v.inventory_count - v.pending_count })}`}
+                      {fmtDate(v.audit_date)}
                     </div>
                   </div>
                   <VisitBadge status={v.status} />
