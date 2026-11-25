@@ -323,6 +323,7 @@ const HI: Record<string, string> = {
   'Your saved work is safe. Try reloading. If it keeps happening, send a screenshot of this message to the office.':
     'आपका सेव किया काम सुरक्षित है। दोबारा लोड करें। बार-बार हो तो इस संदेश का स्क्रीनशॉट ऑफ़िस को भेजें।',
   Reload: 'दोबारा लोड करें',
+  'Updating to the latest version…': 'नया वर्ज़न लोड हो रहा है…',
 
   // camera, photos, signature
   'Opening camera…': 'कैमरा खुल रहा है…',

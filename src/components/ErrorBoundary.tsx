@@ -1,6 +1,22 @@
 import { Component, type ReactNode } from 'react';
 import { translate as tr } from '../lib/i18n';
 
+const RELOAD_KEY = 'tj_reloaded_for_update';
+const isStaleChunk = (e: unknown) => /dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(String((e as Error)?.message ?? e));
+
+/** Reload once to pick up a newly deployed version (guarded so it can never loop). Returns true if reloading. */
+export function reloadForNewVersion(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0);
+    if (Date.now() - last < 30_000) return false;
+    sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
+  } catch {
+    return false; // cannot guard against a reload loop: show the error screen instead
+  }
+  location.reload();
+  return true;
+}
+
 /** Safety net: if a screen crashes, show a message with a way out instead of a blank white page. */
 export default class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -10,6 +26,8 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, { 
   }
 
   componentDidCatch(error: Error) {
+    // A screen file from an older version: quietly load the new version instead of showing an error
+    if (isStaleChunk(error) && reloadForNewVersion()) return;
     // Report to the server log so the office can see what happened
     try {
       void fetch('/api/client-error', {
@@ -24,6 +42,7 @@ export default class ErrorBoundary extends Component<{ children: ReactNode }, { 
 
   render() {
     if (!this.state.error) return this.props.children;
+    if (isStaleChunk(this.state.error)) return <div className="p-6 text-center text-sm text-slate-500">{tr('Updating to the latest version…')}</div>;
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
         <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow">
