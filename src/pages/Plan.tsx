@@ -23,6 +23,7 @@ type PlanRow = {
   auditor_name: string | null;
   home_area: string | null;
   notes: string | null;
+  reach_by: string | null;
   visit_status: VisitStatus | null;
   visit_outcome: string | null;
 };
@@ -110,8 +111,8 @@ export default function Plan() {
     setError(null);
     try {
       for (const r of preview) {
-        if (r.action === 'add') await api.post('/plans', { plan_date: r.date, centre_id: r.centre_id, auditor_id: r.auditor_id, notes: r.notes });
-        if (r.action === 'update') await api.patch(`/plans/${r.existing_id}`, { auditor_id: r.auditor_id, notes: r.notes });
+        if (r.action === 'add') await api.post('/plans', { plan_date: r.date, centre_id: r.centre_id, auditor_id: r.auditor_id, notes: r.notes, reach_by: r.reach_by });
+        if (r.action === 'update') await api.patch(`/plans/${r.existing_id}`, { auditor_id: r.auditor_id, notes: r.notes, reach_by: r.reach_by });
       }
       setPreview(null);
     } catch (e) {
@@ -128,20 +129,20 @@ export default function Plan() {
   async function exportExcel() {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Audit plan');
-    ws.columns = [12, 12, 20, 8, 24, 18, 36].map((width) => ({ width }));
+    ws.columns = [12, 12, 20, 8, 24, 18, 10, 36].map((width) => ({ width }));
     ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
     addLogoRows(wb, ws, await loadLogos(), 5.3);
     ws.addRow([`Stock audit plan – week ${fmtDate(days[0])} to ${fmtDate(days[6])}`]).font = { bold: true, size: 13 };
     ws.addRow([lock ? `Approved ${fmtDateTime(lock.locked_at)}` : 'Draft – not yet approved']).font = { italic: true, color: { argb: 'FF64748B' } };
     ws.addRow([]);
-    const head = ws.addRow(['Date', 'Day', 'Centre', 'State', 'Auditor', 'Auditor base', 'Notes']);
+    const head = ws.addRow(['Date', 'Day', 'Centre', 'State', 'Auditor', 'Auditor base', 'Reach by', 'Notes']);
     head.eachCell((c) => {
       c.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
     });
     const thin = { style: 'thin' as const, color: { argb: 'FFCBD5E1' } };
     for (const r of rows)
-      ws.addRow([fmtDate(r.plan_date), dayName(r.plan_date), r.centre_name, r.state, r.auditor_name ?? '', r.home_area ?? '', r.notes ?? '']).eachCell({ includeEmpty: true }, (c) => {
+      ws.addRow([fmtDate(r.plan_date), dayName(r.plan_date), r.centre_name, r.state, r.auditor_name ?? '', r.home_area ?? '', r.reach_by ?? '10:00', r.notes ?? '']).eachCell({ includeEmpty: true }, (c) => {
         c.border = { top: thin, left: thin, bottom: thin, right: thin };
         c.alignment = { vertical: 'top', wrapText: true };
       });
@@ -349,6 +350,20 @@ function DayCard({
                       </select>
                     ) : (
                       (r.auditor_name ?? '—') + (r.home_area ? ` (${r.home_area})` : '')
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 whitespace-nowrap">
+                    {editable ? (
+                      <input
+                        type="time"
+                        className={`${inputCls} w-28 py-1 text-sm`}
+                        defaultValue={r.reach_by ?? '10:00'}
+                        title="Reach the showroom by"
+                        onBlur={(e) => e.target.value && e.target.value !== (r.reach_by ?? '10:00') && run(() => api.patch(`/plans/${r.id}`, { reach_by: e.target.value }))}
+                        aria-label={`Reach by for ${r.centre_name}`}
+                      />
+                    ) : (
+                      <span className="text-slate-600">by {r.reach_by ?? '10:00'}</span>
                     )}
                   </td>
                   <td className="py-1.5 pr-2">

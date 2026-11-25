@@ -42,6 +42,16 @@ While an audit is open the screen stays on, so it does not lock by itself.
 
 ---
 
+## Alerts on your phone
+Allow notifications when the app asks. You will get:
+- **Audit allocated** – the centre and date, once the office approves the week (and **Changed** / **Cancelled** if it changes).
+- **Reminders** – 7 PM the evening before, and in the morning: *reach the showroom by 10:00 AM* (or the time set for that visit).
+- **Not checked in** – if you have not checked in 30 minutes after that time. The office and the planner are told too.
+
+The 🔔 at the top shows all your alerts.
+
+---
+
 ## 3. Your centres
 The home screen lists:
 - **Checked in now** – the audit you are doing

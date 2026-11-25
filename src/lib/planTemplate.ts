@@ -7,7 +7,8 @@ export type PlanOptions = {
   centres: { id: number; state: string; name: string; weekly_off: string | null }[];
   auditors: { id: number; name: string; phone: string | null; home_area: string | null }[];
 };
-export type ExistingPlan = { id: number; plan_date: string; centre_id: number; auditor_id: number | null; notes: string | null };
+export type ExistingPlan = { id: number; plan_date: string; centre_id: number; auditor_id: number | null; notes: string | null; reach_by?: string | null };
+const DEFAULT_REACH = '10:00';
 
 const DAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const dayName = (d: string) => DAY[new Date(`${d}T00:00:00Z`).getUTCDay()];
@@ -36,12 +37,12 @@ export async function planTemplate(days: string[], o: PlanOptions, existing: Exi
   const L = labels(o);
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Plan', { views: [{ state: 'frozen', ySplit: 6 }] });
-  ws.columns = [24, 26, 28, 20, 36].map((width) => ({ width }));
+  ws.columns = [24, 26, 28, 20, 12, 36].map((width) => ({ width }));
   addLogoRows(wb, ws, await loadLogos(), 3.6);
   // rows 1-4: logos; row 5: title; row 6: headers
   ws.getCell('A5').value = `Auditor allocation – week ${fmtDate(days[0])} to ${fmtDate(days[6])}`;
   ws.getCell('A5').font = { bold: true, size: 13 };
-  const headers = ['Date *', 'Centre *', 'Auditor *', 'Centre weekly off', 'Notes'];
+  const headers = ['Date *', 'Centre *', 'Auditor *', 'Centre weekly off', 'Reach by (HH:MM)', 'Notes'];
   const head = ws.getRow(6);
   headers.forEach((h, i) => (head.getCell(i + 1).value = h));
   head.height = 30;
@@ -77,14 +78,16 @@ export async function planTemplate(days: string[], o: PlanOptions, existing: Exi
       r.getCell(1).value = dateLabel(p.plan_date);
       r.getCell(2).value = L.centre.get(p.centre_id) ?? '';
       r.getCell(3).value = p.auditor_id ? L.auditor.get(p.auditor_id) ?? '' : '';
-      r.getCell(5).value = p.notes ?? '';
+      r.getCell(5).value = p.reach_by ?? DEFAULT_REACH;
+      r.getCell(6).value = p.notes ?? '';
     }
     // weekly off of the chosen centre, looked up automatically
     r.getCell(4).value = { formula: `IF(B${7 + i}="","",IFERROR(VLOOKUP(B${7 + i},Lists!$C:$E,3,FALSE),""))` };
     r.getCell(1).dataValidation = { type: 'list', allowBlank: true, formulae: [dateRange], showErrorMessage: true, errorTitle: 'Date', error: 'Choose a date of this week from the list.' };
     r.getCell(2).dataValidation = { type: 'list', allowBlank: true, formulae: [centreRange], showErrorMessage: true, errorTitle: 'Centre', error: 'Choose a centre from the list.' };
     r.getCell(3).dataValidation = { type: 'list', allowBlank: true, formulae: [auditorRange], showErrorMessage: true, errorTitle: 'Auditor', error: 'Choose an auditor from the list.' };
-    for (let c = 1; c <= 5; c++) r.getCell(c).border = { top: thin, left: thin, bottom: thin, right: thin };
+    r.getCell(5).numFmt = '@';
+    for (let c = 1; c <= 6; c++) r.getCell(c).border = { top: thin, left: thin, bottom: thin, right: thin };
     r.getCell(4).font = { color: { argb: 'FF64748B' } };
   }
 
@@ -97,7 +100,8 @@ export async function planTemplate(days: string[], o: PlanOptions, existing: Exi
     '•  Date – a day of this week.',
     '•  Centre – the centre to be audited that day.',
     '•  Auditor – who audits it (see the "Lists" sheet for each auditor\'s base area and mobile).',
-    '•  Notes – optional (e.g. "reach by 10 am", "manager on leave till 11").',
+    '•  Reach by – time the auditor must reach the showroom, like 10:00 (24-hour). Leave blank for 10:00.',
+    '•  Notes – optional (e.g. "manager on leave till 11").',
     '',
     '"Centre weekly off" fills in by itself – avoid planning a centre on its weekly off day.',
     'Lines already in the plan for this week are filled in; you can change the auditor or notes, or add new lines.',
@@ -120,6 +124,7 @@ export type PlanImportRow = {
   centre_id: number | null;
   auditor_id: number | null;
   notes: string;
+  reach_by: string | null;
   label: { date: string; centre: string; auditor: string };
   action: 'add' | 'update' | 'same' | null; // null = cannot import
   existing_id: number | null;
@@ -145,6 +150,7 @@ export async function parsePlan(file: File, days: string[], o: PlanOptions, exis
       else if (h.startsWith('centre') && !h.includes('off')) col.centre ??= c;
       else if (h.startsWith('auditor')) col.auditor ??= c;
       else if (h.startsWith('note')) col.notes ??= c;
+      else if (h.startsWith('reach')) col.reach ??= c;
     });
     if (col.date && col.centre && col.auditor) headRow = r;
     else for (const k of Object.keys(col)) delete col[k];
@@ -172,6 +178,7 @@ export async function parsePlan(file: File, days: string[], o: PlanOptions, exis
     const centreTxt = cellText(raw('centre'));
     const auditorTxt = cellText(raw('auditor'));
     const notes = cellText(raw('notes'));
+    const reach = readTime(raw('reach'));
     let dateTxt = cellText(dateRaw);
     if (!dateTxt && !centreTxt && !auditorTxt) continue;
     let date: string | null = null;
@@ -191,10 +198,13 @@ export async function parsePlan(file: File, days: string[], o: PlanOptions, exis
     else if (!auditorTxt) problem = 'Auditor is missing';
     else if (!auditor_id) problem = `Auditor "${auditorTxt}" is not in the app`;
     else if (seen.has(`${date}|${centre_id}`)) problem = 'Same centre twice on this date in the file';
+    else if (reach === undefined) problem = `Reach-by time "${cellText(raw('reach'))}" not understood – write it like 10:00`;
     if (date && centre_id) seen.add(`${date}|${centre_id}`);
     const ex = date && centre_id ? existing.find((p) => p.plan_date === date && p.centre_id === centre_id) ?? null : null;
     let action: PlanImportRow['action'] = null;
-    if (!problem) action = !ex ? 'add' : ex.auditor_id === auditor_id && (ex.notes ?? '') === notes ? 'same' : 'update';
+    const reach_by = reach ?? null;
+    if (!problem)
+      action = !ex ? 'add' : ex.auditor_id === auditor_id && (ex.notes ?? '') === notes && (ex.reach_by ?? DEFAULT_REACH) === (reach_by ?? DEFAULT_REACH) ? 'same' : 'update';
     const c = centre_id ? o.centres.find((x) => x.id === centre_id) : null;
     const warning =
       c?.weekly_off && date && dayName(date).toLowerCase().startsWith(c.weekly_off.trim().toLowerCase().slice(0, 3)) ? `Centre is closed on ${c.weekly_off}` : null;
@@ -204,6 +214,7 @@ export async function parsePlan(file: File, days: string[], o: PlanOptions, exis
       centre_id,
       auditor_id,
       notes,
+      reach_by,
       label: { date: dateTxt, centre: centreTxt, auditor: auditorTxt },
       action,
       existing_id: ex?.id ?? null,
@@ -221,4 +232,24 @@ export async function parsePlan(file: File, days: string[], o: PlanOptions, exis
     if (r.action && (load.get(`${r.date}|${r.auditor_id}`) ?? 0) > 2)
       r.warning = [r.warning, `${r.label.auditor} has ${load.get(`${r.date}|${r.auditor_id}`)} centres that day`].filter(Boolean).join('; ');
   return rows;
+}
+
+/** "10:00", "10.30", "9:15 AM", an Excel time → "HH:MM"; null when blank; undefined when not understood. */
+function readTime(v: unknown): string | null | undefined {
+  if (v === null || v === undefined || v === '') return null;
+  if (v instanceof Date) return `${String(v.getUTCHours()).padStart(2, '0')}:${String(v.getUTCMinutes()).padStart(2, '0')}`;
+  if (typeof v === 'number' && v > 0 && v < 1) {
+    const m = Math.round(v * 24 * 60);
+    return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  }
+  const t = cellText(v).trim().toLowerCase();
+  if (!t) return null;
+  const m = t.match(/^(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?$/);
+  if (!m) return undefined;
+  let h = Number(m[1]);
+  const min = Number(m[2] ?? 0);
+  if (m[3] === 'pm' && h < 12) h += 12;
+  if (m[3] === 'am' && h === 12) h = 0;
+  if (h > 23 || min > 59) return undefined;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }

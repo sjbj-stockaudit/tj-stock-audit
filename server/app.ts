@@ -25,6 +25,8 @@ import {
   type Role,
   type TractorStatus,
 } from '../shared/domain';
+import { notify, pushEnabled, usersWithRole } from './notify';
+import { DEFAULT_REACH_BY, dayName, dmy, fmtTime, istParts, lateLines, runSchedule } from './schedule';
 
 type C = Context<AppEnv>;
 type Visit = {
@@ -110,7 +112,54 @@ app.post('/login', async (c) => {
 });
 
 app.post('/logout', async (c) => {
+  // stop phone alerts for this device
+  const b = await c.req.json<{ device_token?: string }>().catch(() => ({}) as { device_token?: string });
+  if (b.device_token) await c.env.DB.prepare('DELETE FROM device_tokens WHERE token = ?').bind(String(b.device_token)).run();
   await endSession(c);
+  return c.json({ ok: true });
+});
+
+// ---------------------------------------------------------------- notifications
+
+app.get('/notifications', requireRole(), async (c) => {
+  const id = c.get('user').id;
+  const [list, unread] = await c.env.DB.batch([
+    c.env.DB.prepare('SELECT id, kind, title, body, link, created_at, read_at FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 60').bind(id),
+    c.env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').bind(id),
+  ]);
+  return c.json({ items: list.results, unread: (unread.results[0] as { n: number }).n });
+});
+
+app.get('/notifications/unread', requireRole(), async (c) => {
+  const r = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').bind(c.get('user').id).first<{ n: number }>();
+  return c.json({ unread: r?.n ?? 0 });
+});
+
+app.post('/notifications/read', requireRole(), async (c) => {
+  await c.env.DB.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').bind(now(), c.get('user').id).run();
+  return c.json({ ok: true });
+});
+
+/** Local testing only (wrangler dev --var TEST_MODE:1): run the 15-minute job as if it were a given time. */
+app.post('/test/schedule', requireRole('admin'), async (c) => {
+  if (!c.env.TEST_MODE) return bad(c, 'Not found.', 404);
+  const at = c.req.query('at');
+  await runSchedule(c.env, at ? new Date(at) : new Date());
+  return c.json({ ok: true });
+});
+
+app.get('/push-config', requireRole(), (c) => c.json({ enabled: pushEnabled(c.env) }));
+
+/** The Android app registers its Firebase token so this user gets phone alerts. */
+app.post('/me/devices', requireRole(), async (c) => {
+  const b = await c.req.json<{ token?: string; platform?: string }>();
+  const token = str(b.token, 400);
+  if (!token) return bad(c, 'No device token.');
+  await c.env.DB.prepare(
+    'INSERT INTO device_tokens (token, user_id, platform, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id, updated_at = excluded.updated_at',
+  )
+    .bind(token, c.get('user').id, str(b.platform, 20), now())
+    .run();
   return c.json({ ok: true });
 });
 
@@ -582,7 +631,9 @@ app.post('/visits/:id/checkin', requireRole('auditor'), async (c) => {
     .bind(user.id, v.id)
     .first<{ name: string }>();
   if (other) return bad(c, `You are still checked in at ${other.name}. Submit that audit first.`, 409);
-  const centre = await c.env.DB.prepare('SELECT lat, lng FROM centres WHERE id = ?').bind(v.centre_id).first<{ lat: number | null; lng: number | null }>();
+  const centre = await c.env.DB.prepare('SELECT name, lat, lng, radius_m FROM centres WHERE id = ?')
+    .bind(v.centre_id)
+    .first<{ name: string; lat: number | null; lng: number | null; radius_m: number }>();
   let distance: number | null = null;
   const stmts = [];
   if (centre?.lat != null && centre?.lng != null) distance = Math.round(distanceMetres(lat, lng, centre.lat, centre.lng));
@@ -613,6 +664,18 @@ app.post('/visits/:id/checkin', requireRole('auditor'), async (c) => {
     ),
   );
   await c.env.DB.batch(stmts);
+  if (distance !== null && distance > (centre?.radius_m ?? 300) && v.status === 'assigned')
+    await notify(
+      c.env,
+      await usersWithRole(c.env, 'admin'),
+      {
+        kind: 'far_checkin',
+        title: `Check-in far from the centre: ${centre?.name ?? ''}`,
+        body: `${user.name} checked in ${distance >= 1000 ? `${(distance / 1000).toFixed(1)} km` : `${distance} m`} from the centre's saved location.`,
+        link: `/visits/${v.id}`,
+      },
+      (p) => c.executionCtx.waitUntil(p),
+    );
   return c.json({ ok: true, distance_m: distance });
 });
 
@@ -1203,6 +1266,22 @@ app.post('/visits/:id/submit', requireRole('auditor'), async (c) => {
         ]
       : []),
   ]);
+  // Findings: tell the office straight away (routine audits go in the 6 PM summary)
+  const { results: trs } = await c.env.DB.prepare('SELECT * FROM tractors WHERE visit_id = ?').bind(v.id).all<TractorRow>();
+  const checked = await withPreviousMeter(c, v, trs);
+  const short = trs.filter((t) => t.status === 'not_found').length;
+  const flagged = checked.filter((t) => (t as { meter_flag?: string | null }).meter_flag).length;
+  const suspicious = trs.filter((t) => t.related_reason).length;
+  if (short || flagged || suspicious) {
+    const ce = await c.env.DB.prepare('SELECT name FROM centres WHERE id = ?').bind(v.centre_id).first<{ name: string }>();
+    const parts = [short && `${short} short`, suspicious && `${suspicious} chassis to check`, flagged && `${flagged} meter flag${flagged > 1 ? 's' : ''}`].filter(Boolean);
+    await notify(
+      c.env,
+      await usersWithRole(c.env, 'admin'),
+      { kind: 'findings', title: `Audit with findings: ${ce?.name ?? ''}`, body: `${parts.join(', ')} – submitted by ${c.get('user').name}.`, link: `/visits/${v.id}` },
+      (p) => c.executionCtx.waitUntil(p),
+    );
+  }
   return c.json({ ok: true });
 });
 
@@ -1248,6 +1327,10 @@ app.get('/dashboard', requireRole('admin'), async (c) => {
     by_status: Object.fromEntries((byStatus.results as { status: string; n: number }[]).map((r) => [r.status, r.n])),
     awaiting_review: (pendingReview.results[0] as { n: number }).n,
     auditors_on_site: (activeAuditors.results[0] as { n: number }).n,
+    late: await (async () => {
+      const t = istParts();
+      return (await lateLines(c.env, t.date, t.minutes)).map((l) => ({ centre: l.centre_name, auditor: l.auditor_name, reach_by: fmtTime(l.reach_by) }));
+    })(),
   });
 });
 
@@ -1329,6 +1412,41 @@ app.get('/geo/tile/:z/:x/:y', requireRole('auditor', 'admin'), async (c) => {
 
 // ---------------------------------------------------------------- weekly audit plan
 
+const isTime = (t: unknown) => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+
+/**
+ * Tell auditors about their allocation once the week is approved & locked: the new auditor gets
+ * "allocated", a replaced auditor gets "cancelled", and a changed date / time is an "update".
+ */
+async function allocationNotices(c: C, planId: number, changed = false) {
+  const p = await c.env.DB.prepare(
+    `SELECT p.*, ce.name AS centre_name FROM plans p JOIN centres ce ON ce.id = p.centre_id
+     WHERE p.id = ? AND EXISTS (SELECT 1 FROM plan_weeks w WHERE w.week_start = ? AND w.locked_at IS NOT NULL)`,
+  )
+    .bind(planId, weekOf((await c.env.DB.prepare('SELECT plan_date FROM plans WHERE id = ?').bind(planId).first<{ plan_date: string }>())?.plan_date ?? '2000-01-03'))
+    .first<{ id: number; plan_date: string; auditor_id: number | null; notified_auditor_id: number | null; reach_by: string | null; centre_name: string }>();
+  if (!p) return; // draft week: nobody is told yet
+  if (p.plan_date < istParts().date) return; // past days
+  const wait = (x: Promise<unknown>) => c.executionCtx.waitUntil(x);
+  const when = `${dayName(p.plan_date)} ${dmy(p.plan_date)}`;
+  if (p.notified_auditor_id && p.notified_auditor_id !== p.auditor_id)
+    await notify(c.env, [p.notified_auditor_id], { kind: 'allocation', title: `Cancelled: ${p.centre_name} on ${dmy(p.plan_date)}`, body: 'This audit has been given to another auditor.', link: '/' }, wait);
+  if (p.auditor_id && (p.notified_auditor_id !== p.auditor_id || changed))
+    await notify(
+      c.env,
+      [p.auditor_id],
+      {
+        kind: 'allocation',
+        title: `${changed && p.notified_auditor_id === p.auditor_id ? 'Changed' : 'Audit allocated'}: ${p.centre_name}`,
+        body: `${when}. Reach the showroom by ${fmtTime(p.reach_by ?? DEFAULT_REACH_BY)}.`,
+        link: '/',
+      },
+      wait,
+    );
+  if (p.notified_auditor_id !== p.auditor_id)
+    await c.env.DB.prepare('UPDATE plans SET notified_auditor_id = ?, reminded_eve_at = NULL, reminded_day_at = NULL, late_alerted_at = NULL WHERE id = ?').bind(p.auditor_id, p.id).run();
+}
+
 const isDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
 /** Monday of the week containing the date (YYYY-MM-DD). */
 function weekOf(date: string): string {
@@ -1357,7 +1475,7 @@ app.get('/plans', requireRole('admin', 'planner'), async (c) => {
   const [rows, weeks] = await c.env.DB.batch([
     c.env.DB.prepare(
       `SELECT p.id, p.plan_date, p.centre_id, ce.name AS centre_name, ce.state, ce.weekly_off, p.auditor_id, u.name AS auditor_name, u.home_area,
-              p.notes, p.updated_at,
+              p.notes, p.reach_by, p.updated_at,
               (SELECT v.status FROM visits v WHERE v.centre_id = p.centre_id AND v.audit_date = p.plan_date ORDER BY v.id DESC LIMIT 1) AS visit_status,
               (SELECT v.outcome FROM visits v WHERE v.centre_id = p.centre_id AND v.audit_date = p.plan_date ORDER BY v.id DESC LIMIT 1) AS visit_outcome
        FROM plans p JOIN centres ce ON ce.id = p.centre_id LEFT JOIN users u ON u.id = p.auditor_id
@@ -1372,16 +1490,18 @@ app.get('/plans', requireRole('admin', 'planner'), async (c) => {
 });
 
 app.post('/plans', requireRole('admin', 'planner'), async (c) => {
-  const b = await c.req.json<{ plan_date: string; centre_id: number; auditor_id?: number | null; notes?: string }>();
+  const b = await c.req.json<{ plan_date: string; centre_id: number; auditor_id?: number | null; notes?: string; reach_by?: string }>();
+  if (b.reach_by && !isTime(b.reach_by)) return bad(c, 'Reach-by time must look like 10:00.');
   if (!isDate(b.plan_date)) return bad(c, 'Choose the date.');
   if (!b.centre_id) return bad(c, 'Choose the centre.');
   if (c.get('user').role === 'planner' && (await weekLocked(c, b.plan_date)))
     return bad(c, 'This week has been approved and locked by the office. Ask them to unlock it.', 409);
   const dup = await c.env.DB.prepare('SELECT id FROM plans WHERE plan_date = ? AND centre_id = ?').bind(b.plan_date, b.centre_id).first();
   if (dup) return bad(c, 'This centre is already planned on that date.', 409);
-  const res = await c.env.DB.prepare('INSERT INTO plans (plan_date, centre_id, auditor_id, notes, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .bind(b.plan_date, b.centre_id, b.auditor_id || null, str(b.notes, 300), c.get('user').id, now())
+  const res = await c.env.DB.prepare('INSERT INTO plans (plan_date, centre_id, auditor_id, notes, reach_by, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(b.plan_date, b.centre_id, b.auditor_id || null, str(b.notes, 300), b.reach_by || null, c.get('user').id, now())
     .run();
+  await allocationNotices(c, res.meta.last_row_id);
   return c.json({ id: res.meta.last_row_id });
 });
 
@@ -1401,6 +1521,12 @@ app.patch('/plans/:id', requireRole('admin', 'planner'), async (c) => {
   const vals: unknown[] = [now()];
   if ('auditor_id' in b) (sets.push('auditor_id = ?'), vals.push(b.auditor_id || null));
   if ('notes' in b) (sets.push('notes = ?'), vals.push(str(b.notes, 300)));
+  if ('reach_by' in b) {
+    if (b.reach_by && !isTime(b.reach_by)) return bad(c, 'Reach-by time must look like 10:00.');
+    // a new time means new reminders
+    sets.push('reach_by = ?', 'reminded_eve_at = NULL', 'reminded_day_at = NULL', 'late_alerted_at = NULL');
+    vals.push(b.reach_by || null);
+  }
   if ('plan_date' in b) {
     if (!isDate(b.plan_date)) return bad(c, 'Choose the date.');
     if (c.get('user').role === 'planner' && (await weekLocked(c, String(b.plan_date)))) return bad(c, 'That week is locked.', 409);
@@ -1412,12 +1538,23 @@ app.patch('/plans/:id', requireRole('admin', 'planner'), async (c) => {
   } catch {
     return bad(c, 'This centre is already planned on that date.', 409);
   }
+  await allocationNotices(c, p.id, ('plan_date' in b || 'reach_by' in b) && !('auditor_id' in b && b.auditor_id !== (p as { auditor_id?: number | null }).auditor_id));
   return c.json({ ok: true });
 });
 
 app.delete('/plans/:id', requireRole('admin', 'planner'), async (c) => {
   const p = await planFor(c, Number(c.req.param('id')));
   if (p instanceof Response) return p;
+  const pp = p as typeof p & { notified_auditor_id: number | null };
+  if (pp.notified_auditor_id) {
+    const ce = await c.env.DB.prepare('SELECT name FROM centres WHERE id = ?').bind(p.centre_id).first<{ name: string }>();
+    await notify(
+      c.env,
+      [pp.notified_auditor_id],
+      { kind: 'allocation', title: `Cancelled: ${ce?.name ?? ''} on ${dmy(p.plan_date)}`, body: 'This audit has been taken off your plan.', link: '/' },
+      (x) => c.executionCtx.waitUntil(x),
+    );
+  }
   await c.env.DB.prepare('DELETE FROM plans WHERE id = ?').bind(p.id).run();
   return c.json({ ok: true });
 });
@@ -1432,7 +1569,16 @@ app.post('/plans/week/:week/:action', requireRole('admin'), async (c) => {
     )
       .bind(start, now(), c.get('user').id)
       .run();
-  else if (c.req.param('action') === 'unlock') await c.env.DB.prepare('UPDATE plan_weeks SET locked_at = NULL WHERE week_start = ?').bind(start).run();
+  if (c.req.param('action') === 'lock') {
+    const { results } = await c.env.DB.prepare('SELECT id FROM plans WHERE plan_date BETWEEN ? AND date(?, \'+6 day\')').bind(start, start).all<{ id: number }>();
+    for (const r of results) await allocationNotices(c, r.id);
+    await notify(
+      c.env,
+      await usersWithRole(c.env, 'planner'),
+      { kind: 'plan_live', title: `Plan approved: week of ${dmy(start)}`, body: `${results.length} centre visit${results.length === 1 ? '' : 's'} approved. Auditors have been told their allocations.`, link: '/' },
+      (p) => c.executionCtx.waitUntil(p),
+    );
+  } else if (c.req.param('action') === 'unlock') await c.env.DB.prepare('UPDATE plan_weeks SET locked_at = NULL WHERE week_start = ?').bind(start).run();
   else return bad(c, 'Unknown action.');
   return c.json({ ok: true });
 });
@@ -1470,6 +1616,13 @@ app.post('/visits/:id/not-done', requireRole('auditor'), async (c) => {
     ).bind(note ? `${reason} – ${note}` : reason, at, at, lat, lng, distance, at, lat, lng, v.id),
     c.env.DB.prepare('INSERT INTO location_pings (visit_id, user_id, lat, lng, at) VALUES (?, ?, ?, ?, ?)').bind(v.id, user.id, lat, lng, at),
   ]);
+  const ce = await c.env.DB.prepare('SELECT name FROM centres WHERE id = ?').bind(v.centre_id).first<{ name: string }>();
+  await notify(
+    c.env,
+    await usersWithRole(c.env, 'admin'),
+    { kind: 'not_done', title: `Audit not carried out: ${ce?.name ?? ''}`, body: `${note ? `${reason} – ${note}` : reason} (reported by ${user.name}).`, link: `/visits/${v.id}` },
+    (p) => c.executionCtx.waitUntil(p),
+  );
   return c.json({ ok: true });
 });
 

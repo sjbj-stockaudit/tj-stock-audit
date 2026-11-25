@@ -16,6 +16,7 @@
     "@capacitor-community/background-geolocation": "^1.2.25",
     "@capacitor/android": "^7.4.3",
     "@capacitor/core": "^7.4.3",
+    "@capacitor/push-notifications": "^7.0.7",
     "capacitor-native-settings": "^7.0.1",
     "exceljs": "^4.4.0",
     "hono": "^4.9.12",

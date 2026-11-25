@@ -4,7 +4,7 @@ import { fmtDate, todayIST } from '../../lib/format';
 import type { VisitRow } from '../../lib/types';
 import { Card, Empty, ErrorBox, Loading, PageTitle, Stat, VisitBadge, useLoad } from '../../components/ui';
 
-type Dash = { date: string; by_status: Record<string, number>; awaiting_review: number; auditors_on_site: number };
+type Dash = { date: string; by_status: Record<string, number>; awaiting_review: number; auditors_on_site: number; late: { centre: string; auditor: string; reach_by: string }[] };
 
 export default function Dashboard() {
   const today = todayIST();
@@ -34,6 +34,19 @@ export default function Dashboard() {
         <Stat label="Auditors on site now" value={dash.data?.auditors_on_site ?? '–'} tone="blue" />
         <Stat label="Waiting for your review" value={dash.data?.awaiting_review ?? '–'} tone={dash.data?.awaiting_review ? 'amber' : undefined} />
       </div>
+
+      {!!dash.data?.late.length && (
+        <Card className="mt-4 border-red-300 bg-red-50 p-4 text-sm text-red-900">
+          <div className="mb-1 font-semibold">⚠ Not checked in on time ({dash.data.late.length})</div>
+          <ul className="list-disc pl-5">
+            {dash.data.late.map((l) => (
+              <li key={`${l.centre}-${l.auditor}`}>
+                {l.auditor} – {l.centre} (due by {l.reach_by})
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <h2 className="mt-8 mb-3 font-semibold">Today's centres</h2>
       {!visits.data ? (

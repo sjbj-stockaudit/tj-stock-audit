@@ -54,6 +54,16 @@ Statuses: Assigned → In progress → Awaiting review → Approved (or Returned
 
 **Centre closed / not carried out:** if the auditor reports that the audit could not be done, the audit shows a red "Audit not carried out" banner with the reason, storefront photo and GPS. Approve it (it appears in reports as not carried out) or send it back so the audit is done. In Monthly visits these are counted in a separate **Centre closed** column, so you decide how to bill them.
 
+## Alerts
+Shown under 🔔 and, on the Android app, as phone notifications:
+- **Late** – an auditor not checked in 30 minutes after the line's reach-by time (also listed on the Dashboard).
+- **Check-in far from the centre** – outside the centre's allowed radius.
+- **Audit with findings** – straight away when an audit is submitted with short tractors, chassis to check or meter flags.
+- **Audit not carried out** – the auditor reported the centre closed.
+- **6 PM summary** – how many audits are waiting for your approval.
+
+Auditors are told their allocation when you **Approve & lock** the week (and if you change a line afterwards). Reminders go out at 7 PM the day before and in the morning. Phone alerts need the Firebase key saved in Cloudflare as the secret `FCM_SERVICE_ACCOUNT`; without it alerts still appear under 🔔.
+
 ## Live map
 Auditors currently checked in, their last location, distance from the centre and progress. Refreshes every minute. "No update in 30 min" means the phone stopped sending location (screen locked on iPhone, phone off, or no signal).
 

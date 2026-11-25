@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1023430185936",
+    "project_id": "sjbj-stock-audit",
+    "storage_bucket": "sjbj-stock-audit.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1023430185936:android:56f2d410a67ec58843dfd5",
+        "android_client_info": {
+          "package_name": "com.sjbj.stockaudit"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMhRijwR9oYAqB3E4OKEHw9chPYjfyPJo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

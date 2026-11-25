@@ -125,7 +125,7 @@ export function parseCoords(text: string): { lat: number; lng: number } | null {
   return null;
 }
 
-export const isShortMapsLink = (text: string) => /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs)\//i.test(String(text).trim());
+export const isShortMapsLink = (text: string) => /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|g\.co\/kgs|share\.google)\//i.test(String(text).trim());
 
 // ------------------------------------------------------------------ facility condition
 
