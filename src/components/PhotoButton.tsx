@@ -6,6 +6,7 @@ import type { PhotoKind } from '../../shared/domain';
 import LiveCamera from './LiveCamera';
 import { cx } from './ui';
 import { useT } from '../lib/i18n';
+import { useBackClose } from '../lib/backButton';
 
 /**
  * Opens the in-app camera (live only – no gallery), stamps the photo with GPS + time,
@@ -37,6 +38,7 @@ export default function PhotoButton({
   required?: boolean;
 }) {
   const [shooting, setShooting] = useState(false);
+  useBackClose(shooting, () => setShooting(false));
   const t = useT();
   const [error, setError] = useState<string | null>(null);
   // Photos still uploading (or failed): shown at once so the auditor can carry on

@@ -1,6 +1,8 @@
 name = "tj-stock-audit"
 main = "server/worker.ts"
 compatibility_date = "2025-10-01"
+# Keep variables set in the Cloudflare dashboard when the app is updated
+keep_vars = true
 
 # The built web app (dist/) is served as static files; any unknown path falls back to
 # index.html so the app's own pages work. Only /api/* runs the server code.

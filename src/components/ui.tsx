@@ -1,6 +1,7 @@
 import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { TRACTOR_STATUS_LABEL, VISIT_STATUS_LABEL, type TractorStatus, type VisitStatus } from '../../shared/domain';
 import { useT } from '../lib/i18n';
+import { useBackClose } from '../lib/backButton';
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ');
@@ -116,6 +117,7 @@ export function TractorBadge({ status }: { status: TractorStatus }) {
 }
 
 export function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+  useBackClose(open, onClose);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();

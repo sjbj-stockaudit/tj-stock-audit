@@ -5,6 +5,9 @@ import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
 import './index.css';
 import { reloadForNewVersion } from './components/ErrorBoundary';
+import { startBackButton } from './lib/backButton';
+
+startBackButton();
 
 // After an update, an open tab may ask for screen files that no longer exist: load the new version.
 window.addEventListener('vite:preloadError', (e) => {

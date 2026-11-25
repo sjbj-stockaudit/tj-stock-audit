@@ -15,6 +15,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api } from "./lib/api";
+import { useBackClose } from "./lib/backButton";
 import type { Me } from "./lib/types";
 import { Loading, cx } from "./components/ui";
 import { LangToggle, setOfficeMode, useT } from "./lib/i18n";
@@ -194,16 +195,28 @@ function OfficeShell() {
         ? PLANNER_NAV
         : CLIENT_NAV;
   const [open, setOpen] = useState(false);
+  useBackClose(open, () => setOpen(false));
   const navigate = useNavigate();
   return (
     <div className="min-h-screen lg:flex">
+      {/* Phone: dark backdrop behind the slide-in menu; tap it to close */}
+      <div
+        className={cx(
+          "fixed inset-0 z-[600] bg-black/40 transition-opacity lg:hidden",
+          open ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+        onClick={() => setOpen(false)}
+        aria-hidden="true"
+      />
       <aside
         className={cx(
-          "bg-brand-900 text-white lg:sticky lg:top-0 lg:flex lg:h-screen lg:w-56 lg:flex-col",
-          open ? "block" : "hidden lg:flex",
+          "fixed inset-y-0 left-0 z-[700] flex w-72 max-w-[85vw] flex-col overflow-y-auto bg-brand-900 text-white shadow-xl transition-transform duration-200",
+          "lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:w-56 lg:translate-x-0 lg:shadow-none",
+          open ? "translate-x-0" : "-translate-x-full",
         )}
+        aria-label="Menu"
       >
-        <div className="m-3 hidden rounded-xl bg-white p-3 text-center text-slate-600 lg:block">
+        <div className="m-3 rounded-xl bg-white p-3 text-center text-slate-600">
           {me.role === "client" ? (
             <>
               <img
@@ -280,20 +293,21 @@ function OfficeShell() {
         </div>
       </aside>
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-[500] flex items-center justify-between bg-brand-900 px-4 py-3 text-white lg:hidden">
+        <header className="sticky top-0 z-[500] flex items-center justify-between bg-brand-900 px-3 py-3 text-white lg:hidden">
           <span className="flex items-center gap-2 font-semibold">
-            <img src="/icon.svg" alt="" className="h-7 w-7" /> Stock Audit
-          </span>
-          <span className="flex items-center gap-3">
-            {me.role !== "client" && <Bell />}
             <button
-              onClick={() => setOpen((o) => !o)}
-              className="rounded-md bg-white/10 px-3 py-1 text-sm"
+              onClick={() => setOpen(true)}
+              className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/10"
+              aria-label="Open menu"
               aria-expanded={open}
             >
-              Menu
+              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
             </button>
+            <img src="/icon.svg" alt="" className="h-7 w-7" /> Stock Audit
           </span>
+          {me.role !== "client" && <Bell />}
         </header>
         <main className="mx-auto max-w-6xl p-4 sm:p-6">
           <Suspense fallback={<Loading />}>
