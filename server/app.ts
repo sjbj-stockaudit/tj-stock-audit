@@ -25,7 +25,7 @@ import {
   type Role,
   type TractorStatus,
 } from '../shared/domain';
-import { notify, pushEnabled, usersWithRole } from './notify';
+import { notify, pushEnabled, testPush, usersWithRole } from './notify';
 import { DEFAULT_REACH_BY, dayName, dmy, fmtTime, istParts, lateLines, runSchedule } from './schedule';
 
 type C = Context<AppEnv>;
@@ -149,6 +149,8 @@ app.post('/test/schedule', requireRole('admin'), async (c) => {
 });
 
 app.get('/push-config', requireRole(), (c) => c.json({ enabled: pushEnabled(c.env) }));
+
+app.post('/push-test', requireRole('admin'), async (c) => c.json(await testPush(c.env, c.get('user').id)));
 
 /** The Android app registers its Firebase token so this user gets phone alerts. */
 app.post('/me/devices', requireRole(), async (c) => {

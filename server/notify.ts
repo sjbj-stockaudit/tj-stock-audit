@@ -109,3 +109,47 @@ async function push(env: Env, userIds: number[], n: Note) {
     }),
   );
 }
+
+/**
+ * Admin self-test: send one alert to the caller's phones and report exactly what happened,
+ * so a wrong key or a phone without the new app shows up as a clear message.
+ */
+export async function testPush(env: Env, userId: number): Promise<{ ok: boolean; message: string }> {
+  if (!env.FCM_SERVICE_ACCOUNT) return { ok: false, message: 'Phone alerts are off: the FCM_SERVICE_ACCOUNT secret is not saved in Cloudflare.' };
+  const a = account(env);
+  if (!a)
+    return { ok: false, message: 'The FCM_SERVICE_ACCOUNT secret is not the Firebase private-key file. Paste the whole file (from { to }) again.' };
+  let bearer: string;
+  try {
+    bearer = await accessToken(a);
+  } catch (e) {
+    return { ok: false, message: `Firebase did not accept the key: ${String((e as Error).message).slice(0, 200)}` };
+  }
+  const { results } = await env.DB.prepare('SELECT token FROM device_tokens WHERE user_id = ?').bind(userId).all<{ token: string }>();
+  if (!results.length)
+    return {
+      ok: true,
+      message: 'The key works. No phone is registered for your login yet: install the new APK, sign in, tap Allow for notifications, then try again.',
+    };
+  let sent = 0;
+  const errors: string[] = [];
+  for (const { token } of results) {
+    const res = await fetch(`https://fcm.googleapis.com/v1/projects/${a.project_id}/messages:send`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: {
+          token,
+          notification: { title: 'Test alert', body: 'Phone alerts are working.' },
+          data: { link: '/notifications', kind: 'test' },
+          android: { priority: 'high', notification: { channel_id: 'alerts', sound: 'default' } },
+        },
+      }),
+    });
+    if (res.ok) sent++;
+    else errors.push(`${res.status} ${(await res.text()).slice(0, 150)}`);
+  }
+  return sent
+    ? { ok: true, message: `Sent to ${sent} phone${sent > 1 ? 's' : ''}. It should appear within a few seconds.` }
+    : { ok: false, message: `Firebase refused the alert: ${errors[0]}` };
+}
