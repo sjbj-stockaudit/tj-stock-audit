@@ -40,6 +40,8 @@ The first time you open an audit, a blue box asks you to keep location working w
 
 While an audit is open the screen stays on, so it does not lock by itself.
 
+**Phone back button (Android app):** it first closes whatever is open (camera, pop-up), otherwise goes to the previous screen. On the home screen it puts the app in the background – it does not close it, so location recording during an audit keeps running.
+
 ---
 
 ## Alerts on your phone
@@ -48,7 +50,7 @@ Allow notifications when the app asks. You will get:
 - **Reminders** – 7 PM the evening before, and in the morning: *reach the showroom by 10:00 AM* (or the time set for that visit).
 - **Not checked in** – if you have not checked in 30 minutes after that time. The office and the planner are told too.
 
-The 🔔 at the top shows all your alerts.
+The 🔔 at the top shows all your alerts. On iPhone, alerts do not pop up on the phone – open the app and check the 🔔.
 
 ---
 

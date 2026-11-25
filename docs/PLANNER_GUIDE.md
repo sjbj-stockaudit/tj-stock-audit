@@ -4,7 +4,11 @@ You plan the stock audits: **which centre is audited on which date, and by which
 
 **Address:** https://tj-stock-audit.sjbjtractor.workers.dev
 
-**Your login:** the username and password given to you by the office. Change the password the first time: **Password** (bottom left on a laptop; **Menu** on a phone).
+**Your login:** the username and password given to you by the office. Change the password the first time: **Password** (bottom left on a laptop; on a phone tap **☰** at the top left).
+
+**Where to use it:** a laptop is easiest for planning (open the address in Chrome or Edge). On a phone:
+- **Android:** install the **Stock Audit** app (`.apk`) the office sends on WhatsApp – open the file → allow installing from this source → **Install** (if Play Protect warns, **More details → Install anyway**). Allow **notifications** so you get alerts.
+- **iPhone:** open the address in **Safari** → **Share** → **Add to Home Screen**. Alerts do not pop up on iPhone; check the 🔔 in the app.
 
 ---
 
