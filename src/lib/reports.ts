@@ -5,7 +5,7 @@ import { autoTable } from 'jspdf-autotable';
 import { FACILITY_RATING_LABEL, METER_FLAG_LABEL, TRACTOR_STATUS_LABEL } from '../../shared/domain';
 import { api, fetchBlob } from './api';
 import { fmtDate, fmtDateTime, fmtDistance, safeName } from './format';
-import type { Photo, Settings, Tractor, VisitDetail } from './types';
+import { isDocumentPhoto, type Photo, type Settings, type Tractor, type VisitDetail } from './types';
 
 // ------------------------------------------------------------------ helpers
 
@@ -432,6 +432,10 @@ function photoPdf(
         });
     }
   }
+  d.photos.filter(isDocumentPhoto).forEach((p, i) => {
+    const img = imgs.get(p.id);
+    if (img) entries.push({ caption: `Supporting document ${i + 1}`, sub: `Shown by the outlet manager · Taken: ${fmtDateTime(p.taken_at)}`, img });
+  });
   for (const l of d.locations)
     for (const p of d.photos.filter((x) => x.location_id === l.id)) {
       const img = imgs.get(p.id);
@@ -513,6 +517,10 @@ async function addCentreToZip(folder: JSZip, d: VisitDetail, s: Settings, onProg
   for (const p of d.photos.filter((x) => x.kind === 'storefront')) {
     const img = imgs.get(p.id);
     if (img) folder.file(`photos/${unique(`Storefront.${ext(p)}`)}`, img.bytes);
+  }
+  for (const p of d.photos.filter(isDocumentPhoto)) {
+    const img = imgs.get(p.id);
+    if (img) folder.file(`photos/documents/${unique(`Document.${ext(p)}`)}`, img.bytes);
   }
   for (const f of d.facility)
     for (const p of d.photos.filter((x) => x.facility_id === f.id)) {

@@ -318,6 +318,13 @@ const HI: Record<string, string> = {
   "Manager's mobile": 'मैनेजर का मोबाइल',
   'Send the manager a copy on WhatsApp': 'मैनेजर को WhatsApp पर कॉपी भेजें',
 
+  'Remark (optional)': 'रिमार्क (वैकल्पिक)',
+  "e.g. customer's tractor in for service – job card photographed": 'जैसे ग्राहक का ट्रैक्टर सर्विस पर – जॉब कार्ड की फोटो ली',
+  'Supporting documents': 'सहायक दस्तावेज़',
+  'Photograph any document the manager shows for tractors not shown, sold or kept elsewhere: sale invoice, delivery challan, gate pass, service job card, transfer note.':
+    'जो ट्रैक्टर नहीं दिखाए गए, बिक गए या दूसरी जगह रखे हैं, उनके लिए मैनेजर जो भी दस्तावेज़ दिखाए उसकी फोटो लें: बिक्री बिल, डिलीवरी चालान, गेट पास, सर्विस जॉब कार्ड, ट्रांसफ़र नोट।',
+  'Document photo': 'दस्तावेज़ की फोटो',
+
   // error screen
   'Something went wrong on this screen': 'इस स्क्रीन पर कुछ गड़बड़ हो गई',
   'Your saved work is safe. Try reloading. If it keeps happening, send a screenshot of this message to the office.':

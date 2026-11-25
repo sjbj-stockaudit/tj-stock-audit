@@ -26,7 +26,7 @@ export default function PhotoButton({
   required,
 }: {
   visitId: number;
-  kind: PhotoKind | 'facility' | 'meter';
+  kind: PhotoKind | 'facility' | 'meter' | 'document';
   label: string;
   stampTitle: string;
   place: string;

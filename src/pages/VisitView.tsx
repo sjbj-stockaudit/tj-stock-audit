@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, photoUrl, signatureUrl } from '../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, fmtHours, hoursBetween } from '../lib/format';
 import { downloadCentreExcel, downloadCentreReport, summarise } from '../lib/reports';
-import type { Photo, Tractor, User, VisitDetail } from '../lib/types';
+import { isDocumentPhoto, type Photo, type Tractor, type User, type VisitDetail } from '../lib/types';
 import { FACILITY_RATING_LABEL, METER_FLAG_LABEL } from '../../shared/domain';
 import { useAuth } from '../App';
 import MapView, { type MapMarker } from '../components/MapView';
@@ -324,6 +324,20 @@ export default function VisitView() {
           </tbody>
         </table>
       </Card>
+
+      {d.photos.some(isDocumentPhoto) && (
+        <>
+          <h2 className="mt-8 mb-3 font-semibold">Supporting documents ({d.photos.filter(isDocumentPhoto).length})</h2>
+          <p className="mb-2 text-sm text-slate-500">Invoices, challans, job cards or transfer notes shown by the manager.</p>
+          <div className="flex flex-wrap gap-2">
+            {d.photos.filter(isDocumentPhoto).map((p) => (
+              <button key={p.id} onClick={() => setZoom(p)}>
+                <img src={photoUrl(p.id)} alt="Supporting document" loading="lazy" className="h-24 w-24 rounded object-cover ring-1 ring-slate-200" />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
 
       <h2 className="mt-8 mb-3 font-semibold">Accessories ({d.accessories.length})</h2>
       {d.accessories.length === 0 ? (

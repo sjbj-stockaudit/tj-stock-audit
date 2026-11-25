@@ -93,7 +93,11 @@ export type SeenTractor = {
   meter_unit: 'km' | 'hours' | null;
   location_id: number | null;
   seen_at: string | null;
+  remarks?: string | null;
 };
+
+/** A supporting-document photo: an "other" photo not linked to a tractor, accessory, facility area or place. */
+export const isDocumentPhoto = (p: Photo) => p.kind === 'other' && !p.tractor_id && !p.accessory_id && !p.facility_id && !p.location_id;
 
 export type VisitLocation = {
   id: number;

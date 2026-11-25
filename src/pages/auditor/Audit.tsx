@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, mapsLink } from '../../lib/format';
 import { getPosition, isAndroidApp, keepScreenOn, openAppSettings, tracker } from '../../lib/geo';
-import type { Accessory, FacilityCheck, Photo, SeenTractor, Tractor, VisitDetail, VisitLocation } from '../../lib/types';
+import { isDocumentPhoto, type Accessory, type FacilityCheck, type Photo, type SeenTractor, type Tractor, type VisitDetail, type VisitLocation } from '../../lib/types';
 import { FACILITY_RATING_LABEL, distanceMetres, facilityProblem, type FacilityRating } from '../../../shared/domain';
 import PhotoButton from '../../components/PhotoButton';
 import SelfieCamera from '../../components/SelfieCamera';
@@ -371,6 +371,7 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
                   {t.engine_no && `${tr('Engine')} ${t.engine_no} · `}
                   {tr('Meter')} {t.meter_reading} {tr(UNIT_LABEL[t.meter_unit ?? 'km'])} · {loc ? `📍 ${loc.name}` : tr('At the centre')}
                 </div>
+                {t.remarks && <div className="text-xs text-slate-600">💬 {t.remarks}</div>}
               </div>
               {open && (
                 <button onClick={() => remove(t)} className="shrink-0 text-sm text-red-600">
@@ -440,6 +441,7 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
   const [chassis, setChassis] = useState('');
   const [engine, setEngine] = useState('');
   const [meter, setMeter] = useState('');
+  const [remarks, setRemarks] = useState('');
   const [unit, setUnit] = useState<'km' | 'hours'>(() => {
     try {
       return localStorage.getItem(UNIT_KEY) === 'hours' ? 'hours' : 'km';
@@ -469,6 +471,7 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
         meter_reading: meter,
         meter_unit: unit,
         location_id: loc,
+        remarks,
         confirm_chassis: firstTyped,
       });
       onSaved(t);
@@ -529,6 +532,14 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
           </select>
         </Field>
       )}
+      <Field label={tr('Remark (optional)')}>
+        <input
+          className={inputCls}
+          value={remarks}
+          onChange={(e) => setRemarks(e.target.value)}
+          placeholder={tr("e.g. customer's tractor in for service – job card photographed")}
+        />
+      </Field>
       <ErrorBox error={error} />
       <Button size="lg" onClick={save} busy={busy} disabled={!chassis.trim() || meter === ''}>
         {tr('Save, then take photos')}
@@ -1068,6 +1079,24 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
             placeholder={tr('e.g. 2 sold, invoice not yet sent to the office; 1 with a customer for a demo')}
           />
         </Field>
+      )}
+
+      {counted && (
+        <Card className="space-y-2 p-4 text-sm">
+          <h3 className="font-semibold">{tr('Supporting documents')}</h3>
+          <p className="text-slate-600">
+            {tr('Photograph any document the manager shows for tractors not shown, sold or kept elsewhere: sale invoice, delivery challan, gate pass, service job card, transfer note.')}
+          </p>
+          <PhotoButton
+            visitId={v.id}
+            kind="document"
+            label={tr('Document photo')}
+            stampTitle={`Document · ${v.centre_name}`}
+            place={`${v.centre_name}, ${v.state}`}
+            photos={d.photos.filter(isDocumentPhoto)}
+            onChange={(n) => setD((x) => replacePhotos(x, (p) => !isDocumentPhoto(p), n))}
+          />
+        </Card>
       )}
 
       {problems.length > 0 && (

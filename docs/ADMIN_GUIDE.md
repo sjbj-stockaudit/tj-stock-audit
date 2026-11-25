@@ -48,6 +48,8 @@ Statuses: Assigned → In progress → Awaiting review → Approved (or Returned
 - A chassis that looks like a stock one (typo?) must be typed twice; if the auditor confirms it, it becomes an extra flagged "Chassis close to …" – check the chassis photo.
 - After **Done counting** the auditor only sees *how many* are not shown. Off-site places (yard, service centre) are checked in with GPS and a photo and shown with their distance from the centre. Everything closes the same day; whatever was not shown is **Short**, with the manager's explanation. The **first count** (before any off-site visits) is kept as evidence.
 
+**Reviewing differences:** for every short tractor, check the manager's explanation and the **Supporting documents** (invoice, challan, gate pass, job card, transfer note) shown in the audit. A document explains the reason but is not physical proof – the tractor stays **Short** in the report. Extras flagged "chassis close to…" or "plate … in records with a different chassis" need a look at the chassis photo before you approve. If something does not add up, **Send back to auditor** with a note, or approve and raise it with the client.
+
 **Meter readings:** each tractor's meter (KM or hours) is recorded weekly. The audit and reports show the previous reading, the difference, and a red flag when it moved by more than 1 or went down. The first reading for a tractor is its starting point.
 
 **Manager's declaration:** the manager signs an on-screen declaration (count, other places, number not shown) – no printout needed – and can be sent a copy on WhatsApp.

@@ -749,6 +749,7 @@ function auditorView(rows: TractorRow[]) {
       meter_unit: t.meter_unit,
       location_id: t.location_id,
       seen_at: t.seen_at,
+      remarks: t.remarks,
     }));
 }
 
@@ -792,6 +793,7 @@ app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
   const reg = str(b.reg_no, 40)?.toUpperCase() ?? null;
   const chassis = str(b.chassis_no, 60)?.toUpperCase() ?? null;
   const engine = str(b.engine_no, 60)?.toUpperCase() ?? null;
+  const remarks = str(b.remarks, 500);
   const key = idKey(chassis);
   if (key.length < 5) return bad(c, 'Enter the full chassis number punched on the tractor.');
   const meter = num(b.meter_reading);
@@ -818,9 +820,9 @@ app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
   if (exact) {
     await c.env.DB.prepare(
       `UPDATE tractors SET status = 'verified', verified_reg = ?, verified_chassis = ?, seen_engine = ?, meter_reading = ?, meter_unit = ?,
-         location_id = ?, seen_at = ?, chassis_key = ?, retyped = ?, updated_at = ? WHERE id = ?`,
+         location_id = ?, seen_at = ?, chassis_key = ?, retyped = ?, remarks = ?, updated_at = ? WHERE id = ?`,
     )
-      .bind(reg, chassis, engine, meter, unit, locationId, at, key, retyped, at, exact.id)
+      .bind(reg, chassis, engine, meter, unit, locationId, at, key, retyped, remarks, at, exact.id)
       .run();
     id = exact.id;
   } else {
@@ -828,11 +830,11 @@ app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
     const related = near ?? samePlate;
     const res = await c.env.DB.prepare(
       `INSERT INTO tractors (visit_id, source, sort_order, reg_no, chassis_no, engine_no, verified_reg, verified_chassis, seen_engine, status,
-         meter_reading, meter_unit, location_id, seen_at, chassis_key, related_id, related_reason, retyped, updated_at)
-       VALUES (?, 'extra', 100000, ?, ?, ?, ?, ?, ?, 'extra', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         meter_reading, meter_unit, location_id, seen_at, chassis_key, related_id, related_reason, retyped, remarks, updated_at)
+       VALUES (?, 'extra', 100000, ?, ?, ?, ?, ?, ?, 'extra', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(v.id, reg, chassis, engine, reg, chassis, engine, meter, unit, locationId, at, key, related?.id ?? null,
-        near ? 'near_chassis' : samePlate ? 'same_plate' : null, retyped, at)
+        near ? 'near_chassis' : samePlate ? 'same_plate' : null, retyped, remarks, at)
       .run();
     id = res.meta.last_row_id;
   }
@@ -851,7 +853,7 @@ app.delete('/tractors/:id', requireRole('auditor', 'admin'), async (c) => {
   else
     await c.env.DB.prepare(
       `UPDATE tractors SET status = 'pending', verified_reg = NULL, verified_chassis = NULL, seen_engine = NULL, meter_reading = NULL,
-         meter_unit = NULL, location_id = NULL, seen_at = NULL, chassis_key = NULL, retyped = NULL, updated_at = ? WHERE id = ?`,
+         meter_unit = NULL, location_id = NULL, seen_at = NULL, chassis_key = NULL, retyped = NULL, remarks = NULL, updated_at = ? WHERE id = ?`,
     )
       .bind(now(), t.id)
       .run();
@@ -1084,10 +1086,11 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
   const img = await readImage(c);
   if (img instanceof Response) return img;
   const { form, file } = img;
-  const kind = String(form.get('kind') ?? 'other') as PhotoKind | 'facility' | 'meter';
-  if (!['chassis', 'tractor', 'accessory', 'storefront', 'facility', 'meter', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
+  const kind = String(form.get('kind') ?? 'other') as PhotoKind | 'facility' | 'meter' | 'document';
+  if (!['chassis', 'tractor', 'accessory', 'storefront', 'facility', 'meter', 'document', 'other'].includes(kind)) return bad(c, 'Invalid photo type.');
   // Facility and meter photos are stored as "other", linked to their area / tractor
-  const storedKind: PhotoKind = kind === 'facility' || kind === 'meter' ? 'other' : kind;
+  // Supporting documents (invoice, challan, job card…) are "other" photos not linked to anything
+  const storedKind: PhotoKind = kind === 'facility' || kind === 'meter' || kind === 'document' ? 'other' : kind;
   const tractorId = num(form.get('tractor_id'));
   const accessoryId = num(form.get('accessory_id'));
   const facilityId = num(form.get('facility_id'));

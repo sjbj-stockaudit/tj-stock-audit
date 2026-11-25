@@ -44,16 +44,6 @@ While an audit is open the screen stays on, so it does not lock by itself.
 
 ---
 
-## Alerts on your phone
-Allow notifications when the app asks. You will get:
-- **Audit allocated** – the centre and date, once the office approves the week (and **Changed** / **Cancelled** if it changes).
-- **Reminders** – 7 PM the evening before, and in the morning: *reach the showroom by 10:00 AM* (or the time set for that visit).
-- **Not checked in** – if you have not checked in 30 minutes after that time. The office and the planner are told too.
-
-The 🔔 at the top shows all your alerts. On iPhone, alerts do not pop up on the phone – open the app and check the 🔔.
-
----
-
 ## 3. Your centres
 The home screen lists:
 - **Checked in now** – the audit you are doing
@@ -86,6 +76,8 @@ You do **not** get the stock list. Ask the centre to show you every tractor and 
 
 If the app says **"Please check the chassis number on the tractor again and type it once more"**, look at the chassis plate again carefully and type the number again (watch 0/O, 1/I, 5/S, 8/B). Type exactly what you see.
 
+Something unusual about a tractor (customer's tractor in for service, demo tractor, chassis plate damaged)? Write it in **Remark (optional)** before saving.
+
 Recorded a tractor by mistake? Tap **Remove** on it.
 
 > Photos can only be taken live in the app – gallery photos cannot be used. Every photo is stamped like a GPS camera photo: a small map with a pin, the address, latitude/longitude, day, date and time. You can take the next photo straight away – photos upload in the background (a spinner shows on the thumbnail; if one says **Retry**, tap it).
@@ -102,6 +94,9 @@ When every tractor shown at the centre is recorded, open the **Finish** tab and 
   3. Come back to **Finish** and tap **Check again**.
 - **Everything must be finished the same day.** From the next day no tractors can be added; anything not shown is reported as short.
 - If some tractors are still not shown, write the **manager's explanation** (e.g. "1 sold on Monday, invoice pending").
+- Photograph every document the manager shows (invoice, delivery challan, gate pass, job card, transfer note) under **Supporting documents** on the Finish tab.
+
+See **section 12** for exactly what to do in each situation.
 
 ---
 
@@ -140,6 +135,48 @@ If you reach the centre and the audit cannot be done (shutter down, manager not 
 
 ## 11. If the office sends an audit back
 It appears under **Sent back for correction** with a note. Tap **Fix and resubmit →** → **Check in and fix** (no new selfie needed), make the corrections, then submit again from **Finish**.
+
+---
+
+## 12. Audit rules – when the count does not match
+You never see the stock list, so you will not know which tractors are "short" or "extra". The app works that out. Your job is to **record exactly what you see, and get proof for everything you don't see**.
+
+### Before you start counting
+- Do not tell the centre in advance when you are coming, and do not discuss the stock count with the staff.
+- Ask the manager to **stop tractors moving in or out** until you finish. If a tractor arrives or leaves during the count, record it and write that in its remark.
+- **Read every chassis plate yourself.** Do not let staff read numbers out to you or type them for you.
+- Go area by area (showroom, yard, back side, shed) so nothing is missed or counted twice.
+
+### While counting
+- Record **every tractor on the premises**, including used/exchange tractors, demo tractors and customers' tractors in for service. Write what it is in the **remark**, and photograph its paper (e.g. job card) under Supporting documents. The office decides what counts.
+- Chassis plate damaged, unreadable, freshly painted, loose or missing? Record what you can read, take a clear chassis photo, write it in the remark, and **call the office**.
+- Never change a number to "make it match". If the app asks you to re-check a chassis, look again and type exactly what is punched.
+
+### When the app says tractors were not shown
+Ask the manager about **each** missing tractor. Then act on what they say:
+
+| Manager says | What you do |
+|---|---|
+| At another yard / godown | Go there **today** with the staff, **check in at that place**, record the tractors there |
+| At a service centre / workshop | Go there today if it is nearby and record them. If it is too far, photograph the **job card** or service entry and write the address in the explanation |
+| Sold / delivered to a customer | Photograph the **sale invoice and delivery challan / gate pass** |
+| Transferred to another centre | Photograph the **transfer note**, and write which centre it went to |
+| With a customer for a demo or trial | Write the customer's **name, village and phone** in the explanation. If you cannot see the tractor, it stays short |
+| No clear answer | Write exactly what was said. **Call the office before you leave** |
+
+- **Never record a tractor you have not seen yourself.** A document is proof of the reason, not a replacement for seeing the tractor. A tractor you did not see stays **short** in the report.
+- Write the manager's explanation in their own words, then let them read and sign the declaration.
+
+### Call the office immediately if
+- **More than 2 tractors** are not shown, or the manager cannot explain them
+- The manager or staff **refuse** the count, rush you, or will not take you to the other yard
+- A document or chassis plate looks **altered or suspicious**
+- Anyone offers you money, gifts or pressure – report it, do not accept
+
+### Your conduct
+- Tea and water are fine; do not accept meals, gifts or favours from the centre.
+- Do not share what you found with centre staff or other centres.
+- Finish and submit the **same day**.
 
 ---
 
