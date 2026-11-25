@@ -32,7 +32,16 @@ Open the address in **Chrome**, **Edge** or **Safari** and sign in. Tip: bookmar
 - The summary shows centres audited, tractors in inventory, **Short** and **Extra**.
 - The table lists each approved audit: date, centre, auditor, tractors checked, short, extra and mismatch counts.
 
-## 3. Viewing one centre's audit
+## 3. Inventory
+**Inventory** in the menu shows the stock position by location and by item:
+- **Location-wise** – every centre with its book stock (latest stock statement), and verified / short / extra from the latest audit, with totals. Only approved audits are included. Click a centre to see each tractor in the statement, what the audit found, where it was shown and its meter reading.
+- **Find a tractor** – type part of a chassis or registration number to see that tractor's history across audits and centres.
+- **Accessories item-wise** – each accessory item with quantity per centre.
+- **Download Excel** on each page.
+
+Figures are **as of** the latest stock statement and the latest audit – sales or arrivals after those dates are not included.
+
+## 4. Viewing one centre's audit
 Click the centre name. You will see:
 - **Counts:** in inventory, verified, short (not found), extra, chassis mismatch
 - **Visit details:** auditor, outlet manager, check-in and check-out time, and the **storefront photo** of the centre
@@ -41,7 +50,7 @@ Click the centre name. You will see:
 - **Facility condition** – how each area is kept (showroom, yard, accessory racks, battery and tyre storage, cleanliness & safety), rated **Good / Average / Poor**, with photos and remarks
 - **Signatures** of the auditor and the outlet manager
 
-## 4. Downloading reports
+## 5. Downloading reports
 On a centre's page:
 - **Excel** – the stock verification sheet for that centre
 - **Download full report** – a zip with the Excel, a PDF of all photos (storefront first, then each tractor captioned by registration number), and the individual photos named by registration number
@@ -55,7 +64,7 @@ On the home page, for the whole period:
 - Android: open **Files** → **Downloads** → tap the zip → **Extract**.
 - iPhone: open **Files** → **Downloads** → tap the zip once to unpack it.
 
-## 5. What the statuses mean
+## 6. What the statuses mean
 | Status | Meaning |
 |---|---|
 | **Verified** | Tractor present, chassis number matches your records |
@@ -63,6 +72,6 @@ On the home page, for the whole period:
 | **Not Found** (short) | In your inventory list, not physically present |
 | **Extra – Not in Inventory** | Physically present, not in your inventory list |
 
-## 6. Your password
+## 7. Your password
 Click **Password** (bottom left on a laptop; open **Menu** on a phone) → enter the current and new password → **Change password**.
 Forgot it? Ask SJBJ & Associates to reset it.

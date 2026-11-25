@@ -1641,4 +1641,96 @@ app.post('/client-error', async (c) => {
 
 app.notFound((c) => c.json({ error: 'Not found.' }, 404));
 
+// ---------------------------------------------------------------- inventory (book stock vs. last audit)
+//
+// Book stock = the latest stock statement uploaded for each centre.
+// Physical   = the latest audit of that centre (clients: approved audits only; office: submitted or approved).
+// It is "as of" those two dates – not real-time.
+
+const auditedStatuses = (role: string) => (role === 'client' ? "('approved')" : "('submitted', 'approved')");
+
+app.get('/inventory/summary', requireRole('admin', 'client'), async (c) => {
+  const st = auditedStatuses(c.get('user').role);
+  const db = c.env.DB;
+  const [centres, accessories] = await db.batch([
+    db.prepare(
+      `SELECT ce.id, ce.name, ce.state,
+              b.id AS book_visit_id, b.audit_date AS book_date,
+              (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = b.id AND t.source = 'inventory') AS book_count,
+              a.id AS audit_visit_id, a.audit_date AS audit_date, a.status AS audit_status, a.outcome AS audit_outcome,
+              (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = a.id AND t.source = 'inventory') AS audit_book_count,
+              (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = a.id AND t.status = 'verified') AS verified,
+              (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = a.id AND t.status = 'not_found') AS short,
+              (SELECT COUNT(*) FROM tractors t WHERE t.visit_id = a.id AND t.source = 'extra') AS extra,
+              (SELECT COALESCE(SUM(qty), 0) FROM accessories x WHERE x.visit_id = a.id) AS accessory_qty
+       FROM centres ce
+       LEFT JOIN visits b ON b.id = (SELECT v.id FROM visits v WHERE v.centre_id = ce.id AND v.upload_id IS NOT NULL ORDER BY v.audit_date DESC, v.id DESC LIMIT 1)
+       LEFT JOIN visits a ON a.id = (SELECT v.id FROM visits v WHERE v.centre_id = ce.id AND v.status IN ${st} ORDER BY v.audit_date DESC, v.id DESC LIMIT 1)
+       WHERE ce.active = 1 AND (b.id IS NOT NULL OR a.id IS NOT NULL)
+       ORDER BY ce.state, ce.name`,
+    ),
+    db.prepare(
+      `SELECT v.centre_id, x.name, x.qty FROM accessories x JOIN visits v ON v.id = x.visit_id
+       WHERE v.id IN (SELECT (SELECT v2.id FROM visits v2 WHERE v2.centre_id = ce.id AND v2.status IN ${st} ORDER BY v2.audit_date DESC, v2.id DESC LIMIT 1) FROM centres ce)`,
+    ),
+  ]);
+  return c.json({ centres: centres.results, accessories: accessories.results });
+});
+
+/** One centre: each tractor in the latest stock statement with what the latest audit found, plus extras and accessories. */
+app.get('/inventory/centre/:id', requireRole('admin', 'client'), async (c) => {
+  const id = Number(c.req.param('id'));
+  const st = auditedStatuses(c.get('user').role);
+  const db = c.env.DB;
+  const centre = await db.prepare('SELECT id, name, state, address FROM centres WHERE id = ?').bind(id).first();
+  if (!centre) return bad(c, 'Centre not found.', 404);
+  const book = await db
+    .prepare('SELECT id, audit_date FROM visits WHERE centre_id = ? AND upload_id IS NOT NULL ORDER BY audit_date DESC, id DESC LIMIT 1')
+    .bind(id)
+    .first<{ id: number; audit_date: string }>();
+  const audit = await db
+    .prepare(`SELECT * FROM visits WHERE centre_id = ? AND status IN ${st} ORDER BY audit_date DESC, id DESC LIMIT 1`)
+    .bind(id)
+    .first<Visit & { outcome: string | null }>();
+  const [bookRows, auditRows, accessories, locations] = await db.batch([
+    db.prepare("SELECT reg_no, engine_no, chassis_no FROM tractors WHERE visit_id = ? AND source = 'inventory' ORDER BY sort_order, id").bind(book?.id ?? 0),
+    db.prepare('SELECT * FROM tractors WHERE visit_id = ? ORDER BY source, sort_order, id').bind(audit?.id ?? 0),
+    db.prepare('SELECT name, qty, remarks FROM accessories WHERE visit_id = ? ORDER BY id').bind(audit?.id ?? 0),
+    db.prepare('SELECT id, name, kind, distance_m FROM visit_locations WHERE visit_id = ?').bind(audit?.id ?? 0),
+  ]);
+  const audited = audit ? await withPreviousMeter(c, audit, auditRows.results as TractorRow[]) : [];
+  return c.json({
+    centre,
+    book: book ? { visit_id: book.id, date: book.audit_date, tractors: bookRows.results } : null,
+    audit: audit ? { visit_id: audit.id, date: audit.audit_date, status: audit.status, outcome: audit.outcome, tractors: audited, locations: locations.results } : null,
+    accessories: accessories.results,
+  });
+});
+
+/** Item-wise: every audit a tractor appears in (by chassis or registration), newest first. */
+app.get('/inventory/tractor', requireRole('admin', 'client'), async (c) => {
+  const q = idKey(c.req.query('q'));
+  if (q.length < 4) return bad(c, 'Type at least 4 letters or digits of the chassis or registration number.');
+  const st = auditedStatuses(c.get('user').role);
+  const norm = (col: string) => `UPPER(REPLACE(REPLACE(REPLACE(COALESCE(${col}, ''), ' ', ''), '-', ''), '/', ''))`;
+  const like = `%${q}%`;
+  const { results } = await c.env.DB.prepare(
+    `SELECT t.id, t.source, t.status, t.reg_no, t.chassis_no, t.engine_no, t.verified_reg, t.verified_chassis, t.seen_engine,
+            t.meter_reading, t.meter_unit, t.location_id, t.remarks, v.id AS visit_id, v.audit_date, v.status AS visit_status,
+            ce.name AS centre_name, ce.state, l.name AS location_name
+     FROM tractors t JOIN visits v ON v.id = t.visit_id JOIN centres ce ON ce.id = v.centre_id
+     LEFT JOIN visit_locations l ON l.id = t.location_id
+     WHERE (${norm('t.chassis_no')} LIKE ? OR ${norm('t.verified_chassis')} LIKE ? OR ${norm('t.reg_no')} LIKE ? OR ${norm('t.verified_reg')} LIKE ?)
+       AND (v.status IN ${st} OR (t.source = 'inventory' AND v.upload_id IS NOT NULL))
+     ORDER BY v.audit_date DESC, v.id DESC LIMIT 200`,
+  )
+    .bind(like, like, like, like)
+    .all<Record<string, unknown> & { visit_status: string; status: string }>();
+  // Book-stock rows of audits not yet approved (client) or not yet submitted: show as "in statement", hide the result
+  const done = c.get('user').role === 'client' ? ['approved'] : ['submitted', 'approved'];
+  return c.json(
+    results.map((r) => (done.includes(r.visit_status) ? r : { ...r, status: 'listed', verified_reg: null, verified_chassis: null, seen_engine: null, meter_reading: null, location_name: null })),
+  );
+});
+
 export default app;

@@ -66,6 +66,15 @@ Shown under 🔔 and, on the Android app, as phone notifications:
 
 Auditors are told their allocation when you **Approve & lock** the week (and if you change a line afterwards). Reminders go out at 7 PM the day before and in the morning. Phone alerts need the Firebase key saved in Cloudflare as the secret `FCM_SERVICE_ACCOUNT`; without it alerts still appear under 🔔.
 
+## Inventory
+**Inventory** in the menu shows the stock position by location and by item:
+- **Location-wise** – every centre with its book stock (latest stock statement), and verified / short / extra from the latest audit, with totals. Click a centre to see each tractor in the statement, what the audit found, where it was shown and its meter reading.
+- **Find a tractor** – type part of a chassis or registration number to see that tractor's history across audits and centres.
+- **Accessories item-wise** – each accessory item with quantity per centre.
+- **Download Excel** on each page.
+
+Figures are **as of** the latest stock statement and the latest audit – sales or arrivals after those dates are not included.
+
 ## Live map
 Auditors currently checked in, their last location, distance from the centre and progress. Refreshes every minute. "No update in 30 min" means the phone stopped sending location (screen locked on iPhone, phone off, or no signal).
 

@@ -37,6 +37,8 @@ const Billing = lazy(() => import("./pages/admin/Billing"));
 const Reports = lazy(() => import("./pages/Reports"));
 const Plan = lazy(() => import("./pages/Plan"));
 const Notifications = lazy(() => import("./pages/Notifications"));
+const Inventory = lazy(() => import("./pages/Inventory"));
+const InventoryCentre = lazy(() => import("./pages/Inventory").then((m) => ({ default: m.InventoryCentre })));
 import AuditorHome from "./pages/auditor/Home";
 import Audit from "./pages/auditor/Audit";
 
@@ -176,6 +178,7 @@ const ADMIN_NAV = [
   ["/plan", "Weekly plan"],
   ["/upload", "Upload stock"],
   ["/visits", "Audits"],
+  ["/inventory", "Inventory"],
   ["/live", "Live map"],
   ["/reports", "Weekly reports"],
   ["/billing", "Monthly visits"],
@@ -183,7 +186,10 @@ const ADMIN_NAV = [
   ["/users", "People"],
 ] as const;
 
-const CLIENT_NAV = [["/", "Audit reports"]] as const;
+const CLIENT_NAV = [
+  ["/", "Audit reports"],
+  ["/inventory", "Inventory"],
+] as const;
 const PLANNER_NAV = [["/", "Weekly plan"]] as const;
 
 function OfficeShell() {
@@ -330,6 +336,12 @@ function OfficeShell() {
                 <Route path="/" element={<Reports />} />
               )}
               <Route path="/visits/:id" element={<VisitView />} />
+              {me.role !== "planner" && (
+                <>
+                  <Route path="/inventory" element={<Inventory />} />
+                  <Route path="/inventory/:id" element={<InventoryCentre />} />
+                </>
+              )}
               <Route path="/account" element={<Account />} />
               {me.role !== "client" && (
                 <Route path="/notifications" element={<Notifications />} />
