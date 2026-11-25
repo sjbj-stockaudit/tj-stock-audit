@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { api } from '../lib/api';
 import { fmtDate, fmtDateTime, todayIST, weekRange } from '../lib/format';
 import { addLogoRows, loadLogos, saveBlob } from '../lib/reports';
 import { VISIT_STATUS_LABEL, type VisitStatus } from '../../shared/domain';
 import { useAuth } from '../App';
-import { Button, Card, ErrorBox, Loading, PageTitle, Stat, VisitBadge, cx, inputCls, useLoad } from '../components/ui';
+import { Button, Card, ErrorBox, Loading, Modal, PageTitle, Stat, VisitBadge, cx, inputCls, useLoad } from '../components/ui';
+import { parsePlan, planTemplate, type PlanImportRow } from '../lib/planTemplate';
 
 type Options = {
   centres: { id: number; state: string; name: string; address: string | null; opening_hours: string | null; weekly_off: string | null }[];
@@ -80,6 +81,47 @@ export default function Plan() {
     return w;
   }, [rows, opts.data]);
 
+  // Excel allocation sheet: download (pre-filled, with drop-downs) → fill → upload
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<PlanImportRow[] | null>(null);
+  const [importing, setImporting] = useState(false);
+  async function downloadTemplate() {
+    setError(null);
+    try {
+      saveBlob(await planTemplate(days, opts.data!, rows), `Auditor_Allocation_${days[0]}_to_${days[6]}.xlsx`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function readFile(f: File | undefined) {
+    if (!f) return;
+    setError(null);
+    try {
+      setPreview(await parsePlan(f, days, opts.data!, rows));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+  async function importPlan() {
+    if (!preview) return;
+    setImporting(true);
+    setError(null);
+    try {
+      for (const r of preview) {
+        if (r.action === 'add') await api.post('/plans', { plan_date: r.date, centre_id: r.centre_id, auditor_id: r.auditor_id, notes: r.notes });
+        if (r.action === 'update') await api.patch(`/plans/${r.existing_id}`, { auditor_id: r.auditor_id, notes: r.notes });
+      }
+      setPreview(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setImporting(false);
+      plans.reload();
+    }
+  }
+
   const planned = new Set(rows.map((r) => r.centre_id));
   const notPlanned = (opts.data?.centres ?? []).filter((c) => !planned.has(c.id));
 
@@ -120,6 +162,17 @@ export default function Plan() {
             <Button variant="secondary" onClick={exportExcel} disabled={!rows.length}>
               Download plan (Excel)
             </Button>
+            <Button variant="secondary" onClick={downloadTemplate} disabled={!plans.data}>
+              Allocation sheet (Excel)
+            </Button>
+            {editable && (
+              <>
+                <Button variant="secondary" onClick={() => fileRef.current?.click()} disabled={!plans.data}>
+                  Upload filled plan
+                </Button>
+                <input ref={fileRef} type="file" accept=".xlsx" className="hidden" onChange={(e) => readFile(e.target.files?.[0])} aria-label="Filled allocation sheet" />
+              </>
+            )}
             {isAdmin &&
               (lock ? (
                 <Button variant="secondary" busy={busy} onClick={() => run(() => api.post(`/plans/week/${week}/unlock`))}>
@@ -181,6 +234,56 @@ export default function Plan() {
           ))}
         </div>
       )}
+      <Modal open={!!preview} onClose={() => !importing && setPreview(null)} title="Upload filled plan – check before importing" wide>
+        {preview && (
+          <div className="space-y-3 text-sm">
+            <p>
+              <b>{preview.filter((r) => r.action === 'add').length}</b> new · <b>{preview.filter((r) => r.action === 'update').length}</b> changed ·{' '}
+              {preview.filter((r) => r.action === 'same').length} unchanged ·{' '}
+              <span className={preview.some((r) => r.problem) ? 'font-semibold text-red-700' : ''}>{preview.filter((r) => r.problem).length} with problems (skipped)</span>
+            </p>
+            <div className="max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50 text-left text-slate-500">
+                  <tr>
+                    <th className="px-2 py-1.5">Row</th>
+                    <th className="px-2 py-1.5">Date</th>
+                    <th className="px-2 py-1.5">Centre</th>
+                    <th className="px-2 py-1.5">Auditor</th>
+                    <th className="px-2 py-1.5">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.map((r) => (
+                    <tr key={r.line} className={cx('border-t border-slate-100', r.problem && 'bg-red-50')}>
+                      <td className="px-2 py-1.5 text-slate-400">{r.line}</td>
+                      <td className="px-2 py-1.5">{r.label.date}</td>
+                      <td className="px-2 py-1.5">{r.label.centre}</td>
+                      <td className="px-2 py-1.5">{r.label.auditor}</td>
+                      <td className="px-2 py-1.5">
+                        {r.problem ? (
+                          <span className="text-red-700">{r.problem}</span>
+                        ) : (
+                          <span className={r.action === 'same' ? 'text-slate-400' : 'text-green-700'}>{{ add: 'New', update: 'Change', same: 'No change' }[r.action!]}</span>
+                        )}
+                        {r.warning && <div className="text-amber-700">⚠ {r.warning}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setPreview(null)} disabled={importing}>
+                Cancel
+              </Button>
+              <Button onClick={importPlan} busy={importing} disabled={!preview.some((r) => r.action === 'add' || r.action === 'update')}>
+                Import {preview.filter((r) => r.action === 'add' || r.action === 'update').length} lines
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
       {notPlanned.length > 0 && (
         <p className="mt-4 text-xs text-slate-500">Not planned this week: {notPlanned.map((c) => c.name).join(', ')}</p>
       )}

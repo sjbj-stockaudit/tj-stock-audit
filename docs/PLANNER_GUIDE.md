@@ -13,6 +13,13 @@ You plan the stock audits: **which centre is audited on which date, and by which
 2. For each day, choose a centre in **Add a centre…**, choose the **Auditor…** (their base area is shown in brackets) → **Add**.
 3. Change the auditor or add **Notes** on any line at any time; **Remove** takes a centre off that day.
 
+### Or fill it in Excel
+1. Choose the week, then tap **Allocation sheet (Excel)**. The sheet already lists this week's planned lines.
+2. One line per visit: pick the **Date**, **Centre** and **Auditor** from the drop-down lists (the "Lists" sheet shows each auditor's base area and mobile). **Centre weekly off** fills in by itself. Add **Notes** if needed.
+3. Back in the app tap **Upload filled plan**. A preview shows what is **new**, **changed**, and any lines with problems (unknown centre, missing auditor, date outside the week, same centre twice) – those are skipped. Tap **Import**.
+
+Removing a line from the sheet does not delete it in the app – use **Remove** on the Weekly plan page.
+
 ### Checks shown at the top
 - **Things to check** – centres planned twice in the week, a centre planned on its weekly off day, an auditor with more than 2 centres on one day, or a centre without an auditor.
 - **Centres not planned this week** – listed at the bottom of the page.
