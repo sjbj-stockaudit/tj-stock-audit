@@ -1524,6 +1524,15 @@ async function allocationNotices(c: C, planId: number, changed = false) {
     await c.env.DB.prepare('UPDATE plans SET notified_auditor_id = ?, reminded_eve_at = NULL, reminded_day_at = NULL, late_alerted_at = NULL WHERE id = ?').bind(p.auditor_id, p.id).run();
 }
 
+/** An audit already created for this centre and day (stock statement uploaded) follows the plan's auditor until it starts. */
+async function syncPlanAuditor(c: C, planId: number) {
+  const p = await c.env.DB.prepare('SELECT plan_date, centre_id, auditor_id FROM plans WHERE id = ?').bind(planId).first<{ plan_date: string; centre_id: number; auditor_id: number | null }>();
+  if (!p) return;
+  await c.env.DB.prepare("UPDATE visits SET auditor_id = ? WHERE centre_id = ? AND audit_date = ? AND status = 'assigned'")
+    .bind(p.auditor_id, p.centre_id, p.plan_date)
+    .run();
+}
+
 const isDate = (d: unknown) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
 /** Monday of the week containing the date (YYYY-MM-DD). */
 function weekOf(date: string): string {
@@ -1578,6 +1587,7 @@ app.post('/plans', requireRole('admin', 'planner'), async (c) => {
   const res = await c.env.DB.prepare('INSERT INTO plans (plan_date, centre_id, auditor_id, notes, reach_by, created_by, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(b.plan_date, b.centre_id, b.auditor_id || null, str(b.notes, 300), b.reach_by || null, c.get('user').id, now())
     .run();
+  if (b.auditor_id) await syncPlanAuditor(c, res.meta.last_row_id);
   await allocationNotices(c, res.meta.last_row_id);
   return c.json({ id: res.meta.last_row_id });
 });
@@ -1615,6 +1625,7 @@ app.patch('/plans/:id', requireRole('admin', 'planner'), async (c) => {
   } catch {
     return bad(c, 'This centre is already planned on that date.', 409);
   }
+  if ('auditor_id' in b) await syncPlanAuditor(c, p.id);
   await allocationNotices(c, p.id, ('plan_date' in b || 'reach_by' in b) && !('auditor_id' in b && b.auditor_id !== (p as { auditor_id?: number | null }).auditor_id));
   return c.json({ ok: true });
 });
