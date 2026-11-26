@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, photoUrl, signatureUrl } from '../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, fmtHours, hoursBetween } from '../lib/format';
-import { downloadCentreExcel, downloadCentreReport, summarise } from '../lib/reports';
+import { downloadCentreExcel, downloadCentrePdf, downloadCentreReport, summarise } from '../lib/reports';
 import { isDocumentPhoto, type Photo, type Tractor, type User, type VisitDetail } from '../lib/types';
 import { FACILITY_RATING_LABEL, METER_FLAG_LABEL } from '../../shared/domain';
 import { useAuth } from '../App';
@@ -56,11 +56,12 @@ export default function VisitView() {
     }
   }
 
-  async function download(kind: 'zip' | 'xlsx') {
+  async function download(kind: 'zip' | 'xlsx' | 'pdf') {
     setError(null);
     setProgress('Preparing…');
     try {
       if (kind === 'zip') await downloadCentreReport(v.id, setProgress);
+      else if (kind === 'pdf') await downloadCentrePdf(v.id, setProgress);
       else await downloadCentreExcel(v.id);
     } catch (e) {
       setError((e as Error).message);
@@ -87,6 +88,9 @@ export default function VisitView() {
           <>
             <Button variant="secondary" onClick={() => download('xlsx')} disabled={!!progress}>
               Excel
+            </Button>
+            <Button variant="secondary" onClick={() => download('pdf')} disabled={!!progress}>
+              PDF
             </Button>
             <Button onClick={() => download('zip')} busy={!!progress}>
               {progress ?? 'Download full report'}

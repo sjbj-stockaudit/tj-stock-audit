@@ -575,6 +575,19 @@ export async function downloadCentreReport(id: number, onProgress?: (m: string) 
   saveBlob(await zip.generateAsync({ type: 'blob' }), `Stock_Verification_${baseName(d)}.zip`);
 }
 
+/** Just the report PDF (summary tables, photos, signatures) for one centre. */
+export async function downloadCentrePdf(id: number, onProgress?: (m: string) => void) {
+  const [d, s] = await Promise.all([loadDetail(id), api.get<Settings>('/settings')]);
+  const imgs = await loadPhotos(d, onProgress);
+  const sigs = {
+    auditor: d.visit.has_auditor_signature ? await loadImg(`/visits/${d.visit.id}/signature/auditor`) : null,
+    manager: d.visit.has_manager_signature ? await loadImg(`/visits/${d.visit.id}/signature/manager`) : null,
+    selfie: null, // never in client reports
+  };
+  onProgress?.('Creating PDF…');
+  saveBlob(photoPdf(d, s, imgs, sigs, await loadLogos()), `Stock_Verification_${baseName(d)}.pdf`);
+}
+
 export async function downloadCentreExcel(id: number) {
   const [d, s] = await Promise.all([loadDetail(id), api.get<Settings>('/settings')]);
   saveBlob(await centreWorkbook(d, s), `Stock_Verification_${baseName(d)}.xlsx`);
