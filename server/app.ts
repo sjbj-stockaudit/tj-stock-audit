@@ -571,6 +571,7 @@ app.get('/visits/:id', requireRole(), async (c) => {
       has_checkin_selfie: c.get('user').role !== 'client' && !!v.checkin_selfie_key,
       // Blind count: the auditor only learns how many were not shown, after finishing the count
       pending_at_count: role === 'auditor' ? undefined : row.pending_at_count,
+      office_remarks: role === 'auditor' ? undefined : row.office_remarks,
       same_day_open: auditDayOpen(v),
     },
     tractors: role === 'auditor' ? auditorView(tractors.results as TractorRow[]) : await withPreviousMeter(c, v, tractors.results as TractorRow[]),
@@ -584,10 +585,11 @@ app.get('/visits/:id', requireRole(), async (c) => {
 
 app.patch('/visits/:id', requireRole('admin'), async (c) => {
   const id = Number(c.req.param('id'));
-  const b = await c.req.json<{ auditor_id?: number | null; audit_date?: string }>();
+  const b = await c.req.json<{ auditor_id?: number | null; audit_date?: string; office_remarks?: string }>();
   const sets: string[] = [];
   const vals: unknown[] = [];
   if ('auditor_id' in b) (sets.push('auditor_id = ?'), vals.push(b.auditor_id || null));
+  if ('office_remarks' in b) (sets.push('office_remarks = ?'), vals.push(str(b.office_remarks, 3000)));
   if (b.audit_date && /^\d{4}-\d{2}-\d{2}$/.test(b.audit_date)) (sets.push('audit_date = ?'), vals.push(b.audit_date));
   if (sets.length) await c.env.DB.prepare(`UPDATE visits SET ${sets.join(', ')} WHERE id = ?`).bind(...vals, id).run();
   return c.json({ ok: true });
@@ -887,6 +889,7 @@ app.patch('/tractors/:id', requireRole('admin'), async (c) => {
   const sets: string[] = ['updated_at = ?'];
   const vals: unknown[] = [now()];
   if ('remarks' in b) (sets.push('remarks = ?'), vals.push(str(b.remarks, 1000)));
+  if ('office_remarks' in b) (sets.push('office_remarks = ?'), vals.push(str(b.office_remarks, 1000)));
   if ('status' in b) {
     if (!allowed.includes(b.status as TractorStatus)) return bad(c, 'Invalid status.');
     sets.push('status = ?');

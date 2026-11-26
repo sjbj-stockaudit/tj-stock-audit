@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, photoUrl, signatureUrl } from '../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, fmtHours, hoursBetween } from '../lib/format';
@@ -129,6 +129,23 @@ export default function VisitView() {
         </Card>
       )}
 
+      {isAdmin && v.status !== 'assigned' && (
+        <Card className="mb-4 p-4">
+          <label className="text-sm font-semibold" htmlFor="office-remarks">
+            Reviewer's remarks
+          </label>
+          <p className="mb-2 text-xs text-slate-500">Your final remarks on this audit – shown to the client and in the Excel and PDF. Saved automatically.</p>
+          <SavedText
+            id="office-remarks"
+            multiline
+            className={`${inputCls} min-h-20`}
+            value={v.office_remarks ?? ''}
+            placeholder="e.g. 2 tractors reported sold – sale invoices seen; centre to update the stock statement."
+            label="Reviewer's remarks"
+            onSave={(text) => api.patch(`/visits/${v.id}`, { office_remarks: text })}
+          />
+        </Card>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <Stat label="In inventory" value={sum.inventory} />
         <Stat label="Verified" value={sum.verified} tone="green" />
@@ -180,8 +197,14 @@ export default function VisitView() {
             )}
             {v.general_remarks && (
               <>
-                <dt className="text-slate-500">Remarks</dt>
+                <dt className="text-slate-500">Auditor's remarks</dt>
                 <dd>{v.general_remarks}</dd>
+              </>
+            )}
+            {!isAdmin && v.office_remarks && (
+              <>
+                <dt className="text-slate-500">Reviewer's remarks</dt>
+                <dd className="whitespace-pre-line">{v.office_remarks}</dd>
               </>
             )}
             {v.reviewer_name && v.status === 'approved' && (
@@ -312,6 +335,17 @@ export default function VisitView() {
                       </div>
                     )}
                     {t.remarks && <div className="mt-1 max-w-48 text-xs">{t.remarks}</div>}
+                    {isAdmin ? (
+                      <SavedText
+                        className="mt-1 w-44 rounded border border-slate-200 px-1.5 py-1 text-xs"
+                        value={t.office_remarks ?? ''}
+                        placeholder="+ Reviewer remark"
+                        label={`Reviewer remark for ${t.verified_reg || t.reg_no || t.chassis_no}`}
+                        onSave={(text) => api.patch(`/tractors/${t.id}`, { office_remarks: text })}
+                      />
+                    ) : (
+                      t.office_remarks && <div className="mt-1 max-w-48 text-xs text-brand-800">Reviewer: {t.office_remarks}</div>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1">
@@ -511,6 +545,69 @@ function AdminControls({
         >
           Delete this audit
         </Button>
+      )}
+    </div>
+  );
+}
+
+/** Text box that saves by itself (shortly after typing stops, and on leaving the box) and shows "Saved". */
+function SavedText({
+  value,
+  onSave,
+  placeholder,
+  label,
+  className,
+  multiline,
+  id,
+}: {
+  value: string;
+  onSave: (text: string) => Promise<unknown>;
+  placeholder: string;
+  label: string;
+  className: string;
+  multiline?: boolean;
+  id?: string;
+}) {
+  const [text, setText] = useState(value);
+  const [state, setState] = useState<'' | 'saving' | 'saved' | 'error'>('');
+  const saved = useRef(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(text);
+  latest.current = text;
+  const flush = (t: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (t === saved.current) return;
+    saved.current = t;
+    setState('saving');
+    onSave(t).then(
+      () => setState('saved'),
+      () => setState('error'),
+    );
+  };
+  useEffect(() => () => flush(latest.current), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const props = {
+    id,
+    className,
+    value: text,
+    placeholder,
+    'aria-label': label,
+    onChange: (e: { target: { value: string } }) => {
+      setText(e.target.value);
+      setState('');
+      if (timer.current) clearTimeout(timer.current);
+      const t = e.target.value;
+      timer.current = setTimeout(() => flush(t), 800);
+    },
+    onBlur: () => flush(text),
+  };
+  return (
+    <div>
+      {multiline ? <textarea rows={3} {...props} /> : <input {...props} />}
+      {state && (
+        <div className={`text-xs ${state === 'error' ? 'text-red-600' : 'text-slate-500'}`}>
+          {state === 'saving' ? 'Saving…' : state === 'saved' ? '✓ Saved' : 'Could not save – check the internet and type again'}
+        </div>
       )}
     </div>
   );

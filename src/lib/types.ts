@@ -81,6 +81,7 @@ export type Tractor = {
   prev_centre?: string | null;
   meter_diff?: number | null;
   meter_flag?: 'moved' | 'went_down' | 'unit_changed' | null;
+  office_remarks?: string | null;
 };
 
 /** What an auditor sees of a tractor they recorded (the stock list itself stays hidden). */
@@ -150,6 +151,7 @@ export type VisitDetail = {
     missing_explanation?: string | null;
     manager_phone?: string | null;
     same_day_open?: boolean;
+    office_remarks?: string | null;
   };
   tractors: Tractor[];
   locations: VisitLocation[];

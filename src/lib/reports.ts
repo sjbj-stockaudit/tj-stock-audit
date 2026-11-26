@@ -61,6 +61,7 @@ function autoRemarks(d: VisitDetail, t: Tractor) {
   if (rel && t.related_reason === 'same_plate') notes.push(`Plate ${rel.reg_no} is in records with a different chassis (${rel.chassis_no})`);
   if (t.meter_flag) notes.push(METER_FLAG_LABEL[t.meter_flag]);
   if (t.remarks) notes.push(t.remarks);
+  if (t.office_remarks) notes.push(`Reviewer: ${t.office_remarks}`);
   return notes.join('; ');
 }
 const baseName = (d: VisitDetail) => `${safeName(d.visit.centre_name)}_${d.visit.audit_date}`;
@@ -271,7 +272,13 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
   ws.addRow([]);
   ws.addRow(['Name of Auditor:', v.auditor_name ?? '', '', 'Name of Manager:', `${v.manager_name ?? ''}${v.manager_phone ? ` (${v.manager_phone})` : ''}`]);
   ws.addRow(['Check-in:', fmtDateTime(v.checkin_at), '', 'Check-out:', fmtDateTime(v.checkout_at)]);
-  if (v.general_remarks) ws.addRow(['General remarks:', v.general_remarks]);
+  if (v.general_remarks) ws.addRow(['General remarks (auditor):', v.general_remarks]);
+  if (v.office_remarks) {
+    const r = ws.addRow(["Reviewer's remarks:", v.office_remarks]);
+    ws.mergeCells(r.number, 2, r.number, 5);
+    r.getCell(1).font = { bold: true };
+    r.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+  }
   return ws;
 }
 
@@ -385,7 +392,8 @@ function photoPdf(
       ...(v.missing_explanation ? [["Manager's explanation (not shown)", v.missing_explanation]] : []),
       ['Check-in', fmtDateTime(v.checkin_at)],
       ['Check-out', fmtDateTime(v.checkout_at)],
-      ...(v.general_remarks ? [['General remarks', v.general_remarks]] : []),
+      ...(v.general_remarks ? [['General remarks (auditor)', v.general_remarks]] : []),
+      ...(v.office_remarks ? [["Reviewer's remarks", v.office_remarks]] : []),
     ],
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 32, fillColor: [241, 245, 249] } },
   });
