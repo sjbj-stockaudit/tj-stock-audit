@@ -11,6 +11,11 @@ export default function Dashboard() {
   const dash = useLoad(() => api.get<Dash>(`/dashboard?date=${today}`));
   const visits = useLoad(() => api.get<VisitRow[]>(`/visits?from=${today}&to=${today}`));
   const review = useLoad(() => api.get<VisitRow[]>('/visits?status=submitted'));
+  // Planned for today but no audit yet = the stock statement has not been uploaded
+  const plan = useLoad(() =>
+    api.get<{ rows: { id: number; centre_name: string; auditor_name: string | null; visit_status: string | null }[] }>(`/plans?from=${today}&to=${today}`),
+  );
+  const waiting = (plan.data?.rows ?? []).filter((r) => !r.visit_status);
 
   const s = dash.data?.by_status ?? {};
   const total = Object.values(s).reduce((a, b) => a + b, 0);
@@ -28,6 +33,23 @@ export default function Dashboard() {
         }
       />
       <ErrorBox error={dash.error} />
+      {waiting.length > 0 && (
+        <Card className="mb-4 border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-semibold">
+            {waiting.length} centre{waiting.length > 1 ? 's' : ''} planned today, waiting for the stock statement
+          </div>
+          <div className="mt-1">
+            {waiting.map((r) => `${r.centre_name} (${r.auditor_name ?? 'no auditor'})`).join(' · ')}
+          </div>
+          <div className="mt-1 text-amber-800">
+            Audits are created when you upload the stock statement – the auditor is filled in from the plan.
+            {waiting.some((r) => !r.auditor_name) && ' Choose an auditor on the Weekly plan for lines with none.'}
+          </div>
+          <Link to="/upload" className="mt-2 inline-block rounded-lg bg-brand-800 px-3 py-1.5 font-medium text-white">
+            Upload stock statement
+          </Link>
+        </Card>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Centres scheduled today" value={total} />
         <Stat label="Audits completed today" value={`${done}/${total}`} tone="green" />

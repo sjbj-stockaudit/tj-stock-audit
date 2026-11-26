@@ -324,87 +324,70 @@ function DayCard({
         <span className="text-xs text-slate-500">{rows.length} centre(s)</span>
       </div>
       {rows.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-t border-slate-100">
-                  <td className="py-1.5 pr-2 font-medium">
-                    {r.centre_name} <span className="text-xs font-normal text-slate-400">{r.state}</span>
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {editable ? (
-                      <select
-                        className={`${inputCls} py-1 text-sm`}
-                        value={r.auditor_id ?? ''}
-                        disabled={busy}
-                        onChange={(e) => run(() => api.patch(`/plans/${r.id}`, { auditor_id: e.target.value ? Number(e.target.value) : null }))}
-                        aria-label={`Auditor for ${r.centre_name} on ${fmtDate(date)}`}
-                      >
-                        <option value="">Choose auditor…</option>
-                        {opts.auditors.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {auditorLabel(a)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      (r.auditor_name ?? '—') + (r.home_area ? ` (${r.home_area})` : '')
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2 whitespace-nowrap">
-                    {editable ? (
-                      <input
-                        type="time"
-                        className={`${inputCls} w-28 py-1 text-sm`}
-                        defaultValue={r.reach_by ?? '10:00'}
-                        title="Reach the showroom by"
-                        onBlur={(e) => e.target.value && e.target.value !== (r.reach_by ?? '10:00') && run(() => api.patch(`/plans/${r.id}`, { reach_by: e.target.value }))}
-                        aria-label={`Reach by for ${r.centre_name}`}
-                      />
-                    ) : (
-                      <span className="text-slate-600">by {r.reach_by ?? '10:00'}</span>
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2">
-                    {editable ? (
-                      <input
-                        className={`${inputCls} py-1 text-sm`}
-                        defaultValue={r.notes ?? ''}
-                        placeholder="Notes"
-                        onBlur={(e) => e.target.value !== (r.notes ?? '') && run(() => api.patch(`/plans/${r.id}`, { notes: e.target.value }))}
-                        aria-label={`Notes for ${r.centre_name}`}
-                      />
-                    ) : (
-                      <span className="text-slate-600">{r.notes}</span>
-                    )}
-                  </td>
-                  <td className="py-1.5 pr-2 whitespace-nowrap">
-                    {showStatus &&
-                      (r.visit_status ? (
-                        <span title={VISIT_STATUS_LABEL[r.visit_status]}>
-                          <VisitBadge status={r.visit_status} />
-                          {r.visit_outcome === 'not_done' && <span className="ml-1 text-xs text-red-600">not carried out</span>}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-400">waiting for stock statement</span>
-                      ))}
-                  </td>
-                  <td className="py-1.5 text-right">
-                    {editable && (
-                      <button
-                        className="text-sm text-red-600"
-                        disabled={busy}
-                        onClick={() => confirm(`Remove ${r.centre_name} from ${fmtDate(date)}?`) && run(() => api.del(`/plans/${r.id}`))}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="divide-y divide-slate-100 border-t border-slate-100">
+          {rows.map((r) => (
+            <div key={r.id} className="py-2">
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <div className="font-medium">
+                  {r.centre_name} <span className="text-xs font-normal text-slate-400">{r.state}</span>
+                </div>
+                {showStatus &&
+                  (r.visit_status ? (
+                    <span title={VISIT_STATUS_LABEL[r.visit_status]}>
+                      <VisitBadge status={r.visit_status} />
+                      {r.visit_outcome === 'not_done' && <span className="ml-1 text-xs text-red-600">not carried out</span>}
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-800">waiting for stock statement</span>
+                  ))}
+              </div>
+              {editable ? (
+                <div className="grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[2fr_7.5rem_2fr_auto]">
+                  <select
+                    className={cx(`${inputCls} col-span-2 py-1.5 text-sm sm:col-span-1`, !r.auditor_id && 'border-amber-400 bg-amber-50')}
+                    value={r.auditor_id ?? ''}
+                    disabled={busy}
+                    onChange={(e) => run(() => api.patch(`/plans/${r.id}`, { auditor_id: e.target.value ? Number(e.target.value) : null }))}
+                    aria-label={`Auditor for ${r.centre_name} on ${fmtDate(date)}`}
+                  >
+                    <option value="">Choose auditor…</option>
+                    {opts.auditors.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {auditorLabel(a)}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="time"
+                    className={`${inputCls} py-1.5 text-sm`}
+                    defaultValue={r.reach_by ?? '10:00'}
+                    title="Reach the showroom by"
+                    onBlur={(e) => e.target.value && e.target.value !== (r.reach_by ?? '10:00') && run(() => api.patch(`/plans/${r.id}`, { reach_by: e.target.value }))}
+                    aria-label={`Reach by for ${r.centre_name}`}
+                  />
+                  <input
+                    className={`${inputCls} py-1.5 text-sm sm:order-none`}
+                    defaultValue={r.notes ?? ''}
+                    placeholder="Notes"
+                    onBlur={(e) => e.target.value !== (r.notes ?? '') && run(() => api.patch(`/plans/${r.id}`, { notes: e.target.value }))}
+                    aria-label={`Notes for ${r.centre_name}`}
+                  />
+                  <button
+                    className="col-span-2 px-1 text-right text-sm text-red-600 sm:col-span-1"
+                    disabled={busy}
+                    onClick={() => confirm(`Remove ${r.centre_name} from ${fmtDate(date)}?`) && run(() => api.del(`/plans/${r.id}`))}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="text-sm text-slate-600">
+                  {(r.auditor_name ?? 'No auditor') + (r.home_area ? ` (${r.home_area})` : '')} · by {r.reach_by ?? '10:00'}
+                  {r.notes && ` · ${r.notes}`}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
       {editable && (
