@@ -325,6 +325,16 @@ const HI: Record<string, string> = {
     'जो ट्रैक्टर नहीं दिखाए गए, बिक गए या दूसरी जगह रखे हैं, उनके लिए मैनेजर जो भी दस्तावेज़ दिखाए उसकी फोटो लें: बिक्री बिल, डिलीवरी चालान, गेट पास, सर्विस जॉब कार्ड, ट्रांसफ़र नोट।',
   'Document photo': 'दस्तावेज़ की फोटो',
 
+  'Please check the chassis number on the tractor again (the number punched on the frame, not the engine number) and type it once more.':
+    'ट्रैक्टर पर चेसिस नंबर फिर से ध्यान से देखें (फ्रेम पर खुदा नंबर, इंजन नंबर नहीं) और दोबारा लिखें।',
+  'First, re-check these tractors you recorded – they do not match the records. A wrong letter or digit in the chassis number is the usual reason:':
+    'पहले, आपके दर्ज किए ये ट्रैक्टर दोबारा जाँचें – ये रिकॉर्ड से मेल नहीं खाते। अक्सर चेसिस नंबर में एक गलत अक्षर या अंक इसकी वजह होता है:',
+  'Fix chassis no.': 'चेसिस नंबर ठीक करें',
+  'If the numbers are correct, leave them – the office will review.': 'अगर नंबर सही हैं तो वैसे ही छोड़ दें – ऑफ़िस जाँचेगा।',
+  'Go back to this tractor, read the chassis plate again carefully and correct the numbers. Photos and meter reading are kept.':
+    'इस ट्रैक्टर पर वापस जाएँ, चेसिस प्लेट फिर से ध्यान से पढ़ें और नंबर ठीक करें। फोटो और मीटर रीडिंग वैसी ही रहेंगी।',
+  'Save correction': 'सुधार सेव करें',
+
   // error screen
   'Something went wrong on this screen': 'इस स्क्रीन पर कुछ गड़बड़ हो गई',
   'Your saved work is safe. Try reloading. If it keeps happening, send a screenshot of this message to the office.':

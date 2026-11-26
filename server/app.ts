@@ -785,6 +785,24 @@ async function tractorFor(c: C, id: number) {
 
 const METER_UNITS = ['km', 'hours'];
 
+const RETYPE_MSG = 'Please check the chassis number on the tractor again (the number punched on the frame, not the engine number) and type it once more.';
+
+/**
+ * A typed chassis that probably belongs to a stock tractor but does not match exactly: a look-alike chassis,
+ * the engine number typed in the chassis box, or the number plate of a stock tractor. The auditor is asked to
+ * re-type it (nothing about the list is revealed); if they type the same again it is kept as an extra, flagged.
+ */
+function suspectMatch(pending: TractorRow[], chassis: string | null, reg: string | null): { row: TractorRow; reason: 'near_chassis' | 'engine_typed' | 'same_plate' } | null {
+  const key = idKey(chassis);
+  const near = pending.find((t) => compareChassis(t.chassis_no, chassis) === 'near');
+  if (near) return { row: near, reason: 'near_chassis' };
+  const eng = pending.find((t) => idKey(t.engine_no) && (idKey(t.engine_no) === key || compareChassis(t.engine_no, chassis) === 'near'));
+  if (eng) return { row: eng, reason: 'engine_typed' };
+  const plate = reg ? pending.find((t) => idKey(t.reg_no) && idKey(t.reg_no) === idKey(reg)) : undefined;
+  if (plate) return { row: plate, reason: 'same_plate' };
+  return null;
+}
+
 app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
   const v = await visitFor(c, Number(c.req.param('id')), 'edit');
   if (v instanceof Response) return v;
@@ -809,11 +827,10 @@ app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
 
   const pending = rows.filter((t) => t.source === 'inventory' && t.status === 'pending');
   const exact = pending.find((t) => idKey(t.chassis_no) === key);
-  // A typed chassis that is close to (but not exactly) a stock one: ask for it to be re-typed, without revealing anything.
   const confirmed = !!b.confirm_chassis && idKey(b.confirm_chassis) === key;
-  const near = exact ? undefined : pending.find((t) => compareChassis(t.chassis_no, chassis) === 'near');
-  if (near && !confirmed)
-    return c.json({ error: 'Please check the chassis number on the tractor again and type it once more.', retype: true }, 409);
+  const suspect = exact ? null : suspectMatch(pending, chassis, reg);
+  if (suspect && !confirmed) return c.json({ error: RETYPE_MSG, retype: true }, 409);
+  const near = suspect?.reason === 'near_chassis' || suspect?.reason === 'engine_typed' ? suspect.row : undefined;
   const retyped = b.confirm_chassis ? 1 : null;
   const at = now();
   let id: number;
@@ -826,7 +843,7 @@ app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
       .run();
     id = exact.id;
   } else {
-    const samePlate = reg ? pending.find((t) => idKey(t.reg_no) && idKey(t.reg_no) === idKey(reg)) : undefined;
+    const samePlate = suspect?.reason === 'same_plate' ? suspect.row : undefined;
     const related = near ?? samePlate;
     const res = await c.env.DB.prepare(
       `INSERT INTO tractors (visit_id, source, sort_order, reg_no, chassis_no, engine_no, verified_reg, verified_chassis, seen_engine, status,
@@ -834,7 +851,7 @@ app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
        VALUES (?, 'extra', 100000, ?, ?, ?, ?, ?, ?, 'extra', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(v.id, reg, chassis, engine, reg, chassis, engine, meter, unit, locationId, at, key, related?.id ?? null,
-        near ? 'near_chassis' : samePlate ? 'same_plate' : null, retyped, remarks, at)
+        suspect?.reason ?? null, retyped, remarks, at)
       .run();
     id = res.meta.last_row_id;
   }
@@ -880,6 +897,52 @@ app.patch('/tractors/:id', requireRole('admin'), async (c) => {
 });
 
 /** Auditor has finished counting what was shown: tell them only HOW MANY stock tractors were not shown. */
+/**
+ * Correct the numbers of a tractor the auditor recorded that did not match the records (typo).
+ * If it now matches a stock tractor, its photos, meter and place move to that tractor.
+ */
+app.patch('/seen/:id', requireRole('auditor'), async (c) => {
+  const r = await tractorFor(c, Number(c.req.param('id')));
+  if (r instanceof Response) return r;
+  const { t, v } = r;
+  if (!auditDayOpen(v)) return bad(c, DAY_OVER, 409);
+  if (t.source !== 'extra') return bad(c, 'This tractor already matches the records.');
+  const b = await c.req.json<Record<string, unknown>>();
+  const reg = str(b.reg_no, 40)?.toUpperCase() ?? null;
+  const chassis = str(b.chassis_no, 60)?.toUpperCase() ?? null;
+  const engine = str(b.engine_no, 60)?.toUpperCase() ?? null;
+  const key = idKey(chassis);
+  if (key.length < 5) return bad(c, 'Enter the full chassis number punched on the tractor.');
+  const { results: rows } = await c.env.DB.prepare('SELECT * FROM tractors WHERE visit_id = ? AND id != ?').bind(v.id, t.id).all<TractorRow>();
+  if (rows.some((x) => x.chassis_key === key)) return bad(c, 'This chassis number is already recorded in this audit.', 409);
+  const pending = rows.filter((x) => x.source === 'inventory' && x.status === 'pending');
+  const exact = pending.find((x) => idKey(x.chassis_no) === key);
+  const confirmed = !!b.confirm_chassis && idKey(b.confirm_chassis) === key;
+  const suspect = exact ? null : suspectMatch(pending, chassis, reg);
+  if (suspect && !confirmed) return c.json({ error: RETYPE_MSG, retype: true }, 409);
+  const at = now();
+  let id = t.id;
+  if (exact) {
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `UPDATE tractors SET status = 'verified', verified_reg = ?, verified_chassis = ?, seen_engine = ?, meter_reading = ?, meter_unit = ?,
+           location_id = ?, seen_at = ?, chassis_key = ?, retyped = 1, remarks = ?, updated_at = ? WHERE id = ?`,
+      ).bind(reg, chassis, engine, t.meter_reading, t.meter_unit, t.location_id, t.seen_at, key, t.remarks, at, exact.id),
+      c.env.DB.prepare('UPDATE photos SET tractor_id = ? WHERE tractor_id = ?').bind(exact.id, t.id),
+      c.env.DB.prepare('DELETE FROM tractors WHERE id = ?').bind(t.id),
+    ]);
+    id = exact.id;
+  } else
+    await c.env.DB.prepare(
+      `UPDATE tractors SET reg_no = ?, chassis_no = ?, engine_no = ?, verified_reg = ?, verified_chassis = ?, seen_engine = ?, chassis_key = ?,
+         related_id = ?, related_reason = ?, retyped = 1, updated_at = ? WHERE id = ?`,
+    )
+      .bind(reg, chassis, engine, reg, chassis, engine, key, suspect?.row.id ?? null, suspect?.reason ?? null, at, t.id)
+      .run();
+  const row = await c.env.DB.prepare('SELECT * FROM tractors WHERE id = ?').bind(id).first<TractorRow>();
+  return c.json({ old_id: t.id, tractor: auditorView([row!])[0] });
+});
+
 app.post('/visits/:id/count-done', requireRole('auditor'), async (c) => {
   const v = await visitFor(c, Number(c.req.param('id')), 'edit');
   if (v instanceof Response) return v;
@@ -890,7 +953,13 @@ app.post('/visits/:id/count-done', requireRole('auditor'), async (c) => {
   // The first count (before any off-site visits) is kept as evidence
   if (!v.count_done_at)
     await c.env.DB.prepare('UPDATE visits SET count_done_at = ?, pending_at_count = ? WHERE id = ?').bind(now(), pending, v.id).run();
-  return c.json({ pending, day_open: auditDayOpen(v) });
+  // Help find typos: the auditor's own entries that matched nothing in the records (the list itself stays hidden)
+  const recheck = pending
+    ? (
+        await c.env.DB.prepare("SELECT id FROM tractors WHERE visit_id = ? AND source = 'extra' AND seen_at IS NOT NULL ORDER BY id").bind(v.id).all<{ id: number }>()
+      ).results.map((x) => x.id)
+    : [];
+  return c.json({ pending, recheck, day_open: auditDayOpen(v) });
 });
 
 app.put('/visits/:id/explanation', requireRole('auditor'), async (c) => {

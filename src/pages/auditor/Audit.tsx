@@ -499,7 +499,7 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
       </Field>
       {firstTyped !== null && (
         <p className="-mt-1 rounded-lg bg-amber-50 p-2 text-sm text-amber-900">
-          {tr('Please check the chassis number on the tractor again and type it once more.')}
+          {tr('Please check the chassis number on the tractor again (the number punched on the frame, not the engine number) and type it once more.')}
         </p>
       )}
       <Field label={tr('Registration number (number plate)')}>
@@ -892,6 +892,8 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
   const { me } = useAuth();
   const seen = seenOf(d);
   const [pending, setPending] = useState<number | null>(null);
+  const [recheck, setRecheck] = useState<number[]>([]);
+  const [fixing, setFixing] = useState<SeenTractor | null>(null);
   const [popup, setPopup] = useState(false);
   const [counting, setCounting] = useState(false);
   const [addingPlace, setAddingPlace] = useState(false);
@@ -906,15 +908,20 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
 
   // Refresh the "not shown" number whenever the Finish tab is opened after the count
   useEffect(() => {
-    if (counted) api.post<{ pending: number }>(`/visits/${v.id}/count-done`).then((r) => setPending(r.pending), () => {});
+    if (counted)
+      api.post<{ pending: number; recheck?: number[] }>(`/visits/${v.id}/count-done`).then(
+        (r) => (setPending(r.pending), setRecheck(r.recheck ?? [])),
+        () => {},
+      );
   }, [counted, v.id, seen.length]);
 
   async function countDone() {
     setCounting(true);
     setError(null);
     try {
-      const r = await api.post<{ pending: number }>(`/visits/${v.id}/count-done`);
+      const r = await api.post<{ pending: number; recheck?: number[] }>(`/visits/${v.id}/count-done`);
       setPending(r.pending);
+      setRecheck(r.recheck ?? []);
       setPopup(true);
       if (!counted) setD((x) => ({ ...x, visit: { ...x.visit, count_done_at: new Date().toISOString() } }));
     } catch (e) {
@@ -1029,6 +1036,28 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
         ) : (
           <div className="space-y-2 rounded-lg bg-amber-50 p-3 text-amber-900">
             <p className="font-semibold">{tr('{n} tractor(s) in the records not shown yet', { n: pending })}</p>
+            {recheck.length > 0 && (
+              <div className="rounded-lg bg-white p-2">
+                <p className="font-medium">{tr('First, re-check these tractors you recorded – they do not match the records. A wrong letter or digit in the chassis number is the usual reason:')}</p>
+                <ul className="mt-1 space-y-1">
+                  {seen
+                    .filter((t) => recheck.includes(t.id))
+                    .map((t) => (
+                      <li key={t.id} className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs">
+                          {t.reg_no || tr('No reg. no')} · {t.chassis_no}
+                        </span>
+                        {d.visit.same_day_open !== false && (
+                          <Button size="sm" variant="secondary" onClick={() => setFixing(t)}>
+                            {tr('Fix chassis no.')}
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                </ul>
+                <p className="mt-1 text-xs">{tr('If the numbers are correct, leave them – the office will review.')}</p>
+              </div>
+            )}
             <p>{tr('Ask the manager where they are. If they are at another yard or a service centre, go there today and record them.')}</p>
             <Button size="sm" variant="secondary" onClick={countDone} busy={counting}>
               {tr('Check again')}
@@ -1171,6 +1200,22 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
           <Button onClick={() => setPopup(false)}>{tr('OK')}</Button>
         </div>
       </Modal>
+      <Modal open={!!fixing} onClose={() => setFixing(null)} title={tr('Fix chassis no.')}>
+        {fixing && (
+          <FixChassis
+            t={fixing}
+            onSaved={(oldId, nt) => {
+              setFixing(null);
+              setD((x) => ({ ...x, tractors: [...x.tractors.filter((y) => y.id !== oldId), nt as unknown as Tractor], photos: x.photos.map((p) => (p.tractor_id === oldId ? { ...p, tractor_id: nt.id } : p)) }));
+              // refresh the number quietly (no pop-up)
+              api.post<{ pending: number; recheck?: number[] }>(`/visits/${v.id}/count-done`).then(
+                (r) => (setPending(r.pending), setRecheck(r.recheck ?? [])),
+                () => {},
+              );
+            }}
+          />
+        )}
+      </Modal>
       <Modal open={addingPlace} onClose={() => setAddingPlace(false)} title={tr('Check in at another place')}>
         <AddLocation
           d={d}
@@ -1182,6 +1227,51 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
         />
       </Modal>
       <NotDone d={d} />
+    </div>
+  );
+}
+
+/** Correct a recorded tractor's numbers (typo). If it now matches the records, it is matched; photos are kept. */
+function FixChassis({ t, onSaved }: { t: SeenTractor; onSaved: (oldId: number, nt: SeenTractor) => void }) {
+  const tr = useT();
+  const [chassis, setChassis] = useState(t.chassis_no ?? '');
+  const [reg, setReg] = useState(t.reg_no ?? '');
+  const [engine, setEngine] = useState(t.engine_no ?? '');
+  const [firstTyped, setFirstTyped] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.patch<{ old_id: number; tractor: SeenTractor }>(`/seen/${t.id}`, { chassis_no: chassis, reg_no: reg, engine_no: engine, confirm_chassis: firstTyped });
+      onSaved(r.old_id, r.tractor);
+    } catch (e) {
+      if (e instanceof ApiError && e.data.retype) {
+        setFirstTyped(chassis);
+        setChassis('');
+      } else setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-slate-600">{tr('Go back to this tractor, read the chassis plate again carefully and correct the numbers. Photos and meter reading are kept.')}</p>
+      <Field label={tr('Chassis number (as punched on the tractor) *')}>
+        <input className={`${inputCls} font-mono uppercase`} value={chassis} onChange={(e) => setChassis(e.target.value.toUpperCase())} autoComplete="off" aria-label="Chassis number" />
+      </Field>
+      {firstTyped !== null && <p className="-mt-1 rounded-lg bg-amber-50 p-2 text-sm text-amber-900">{tr('Please check the chassis number on the tractor again (the number punched on the frame, not the engine number) and type it once more.')}</p>}
+      <Field label={tr('Registration number (number plate)')}>
+        <input className={`${inputCls} font-mono uppercase`} value={reg} onChange={(e) => setReg(e.target.value.toUpperCase())} />
+      </Field>
+      <Field label={tr('Engine number')}>
+        <input className={`${inputCls} font-mono uppercase`} value={engine} onChange={(e) => setEngine(e.target.value.toUpperCase())} />
+      </Field>
+      <ErrorBox error={error} />
+      <Button size="lg" onClick={save} busy={busy} disabled={!chassis.trim()}>
+        {tr('Save correction')}
+      </Button>
     </div>
   );
 }
