@@ -1,3 +1,6 @@
+import { Capacitor } from '@capacitor/core';
+import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
@@ -10,6 +13,11 @@ import { isDocumentPhoto, type Photo, type Settings, type Tractor, type VisitDet
 // ------------------------------------------------------------------ helpers
 
 export function saveBlob(blob: Blob, filename: string) {
+  // Inside the Android app the built-in browser ignores downloads: save the file and open the Share sheet instead.
+  if (Capacitor.isNativePlatform()) {
+    void shareFromApp(blob, filename);
+    return;
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -18,6 +26,26 @@ export function saveBlob(blob: Blob, filename: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+async function shareFromApp(blob: Blob, filename: string) {
+  if (!Capacitor.isPluginAvailable('Filesystem') || !Capacitor.isPluginAvailable('Share')) {
+    alert('Downloads need the latest version of the app. For now, open the website in Chrome to download.');
+    return;
+  }
+  try {
+    const data = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',')[1] ?? '');
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(blob);
+    });
+    const { uri } = await Filesystem.writeFile({ path: filename, data, directory: Directory.Cache });
+    await Share.share({ title: filename, files: [uri], dialogTitle: 'Save or send the file' });
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    if (!/cancel/i.test(msg)) alert(`Could not share the file: ${msg}`);
+  }
 }
 
 const tractorName = (t: Tractor) => t.verified_reg || t.reg_no || t.verified_chassis || t.chassis_no || `Tractor-${t.id}`;
