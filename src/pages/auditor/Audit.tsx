@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../../lib/api';
 import { fmtDate, fmtDateTime, fmtDistance, mapsLink } from '../../lib/format';
@@ -780,12 +780,11 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
                 onChange={(ps) => setD((x) => replacePhotos(x, (p) => p.facility_id !== f.id, ps))}
               />
             )}
-            <input
-              className={inputCls}
-              defaultValue={f.remarks ?? ''}
+            <RemarkInput
+              value={f.remarks ?? ''}
               placeholder={tr(f.rating === 'poor' || f.rating === 'na' ? 'Remark (required)' : 'Remark (optional) – e.g. racks labelled, batteries on floor')}
-              onBlur={(e) => e.target.value !== (f.remarks ?? '') && save(f, { remarks: e.target.value })}
-              aria-label={`Remark for ${f.area}`}
+              onSave={(text) => save(f, { remarks: text })}
+              label={`Remark for ${f.area}`}
             />
             {!!f.is_custom && (
               <button onClick={() => remove(f)} className="text-sm text-red-600">
@@ -1273,5 +1272,42 @@ function FixChassis({ t, onSaved }: { t: SeenTractor; onSaved: (oldId: number, n
         {tr('Save correction')}
       </Button>
     </div>
+  );
+}
+
+/**
+ * Text box that saves by itself while typing (shortly after the last key), and on leaving the box –
+ * so switching tabs straight after typing never loses the text.
+ */
+function RemarkInput({ value, placeholder, onSave, label }: { value: string; placeholder: string; onSave: (text: string) => void; label: string }) {
+  const [text, setText] = useState(value);
+  const saved = useRef(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flush = (t: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (t !== saved.current) {
+      saved.current = t;
+      onSave(t);
+    }
+  };
+  const latest = useRef(text);
+  latest.current = text;
+  // also save if the screen is closed while a save is waiting
+  useEffect(() => () => flush(latest.current), []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <input
+      className={inputCls}
+      value={text}
+      placeholder={placeholder}
+      onChange={(e) => {
+        const t = e.target.value;
+        setText(t);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => flush(t), 700);
+      }}
+      onBlur={() => flush(text)}
+      aria-label={label}
+    />
   );
 }
