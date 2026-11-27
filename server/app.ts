@@ -1202,11 +1202,22 @@ app.post('/visits/:id/photos', requireRole('auditor', 'admin'), async (c) => {
       c.get('user').id,
     )
     .run();
-  return c.json(
-    await c.env.DB.prepare('SELECT id, tractor_id, accessory_id, facility_id, location_id, kind, lat, lng, taken_at FROM photos WHERE id = ?')
-      .bind(res.meta.last_row_id)
-      .first(),
-  );
+  // One photo per tractor slot (chassis / tractor / meter): a new one replaces the old
+  let replaced: number[] = [];
+  if (tractorId && (kind === 'chassis' || kind === 'tractor' || kind === 'meter')) {
+    const { results: old } = await c.env.DB.prepare('SELECT id, r2_key FROM photos WHERE tractor_id = ? AND kind = ? AND id != ?')
+      .bind(tractorId, storedKind, res.meta.last_row_id)
+      .all<{ id: number; r2_key: string }>();
+    if (old.length) {
+      await c.env.PHOTOS.delete(old.map((o) => o.r2_key));
+      await c.env.DB.prepare(`DELETE FROM photos WHERE id IN (${old.map(() => '?').join(',')})`).bind(...old.map((o) => o.id)).run();
+      replaced = old.map((o) => o.id);
+    }
+  }
+  const saved = await c.env.DB.prepare('SELECT id, tractor_id, accessory_id, facility_id, location_id, kind, lat, lng, taken_at FROM photos WHERE id = ?')
+    .bind(res.meta.last_row_id)
+    .first();
+  return c.json({ ...saved, replaced });
 });
 
 app.delete('/photos/:id', requireRole('auditor', 'admin'), async (c) => {

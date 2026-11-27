@@ -383,6 +383,7 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
               <PhotoButton
                 visitId={d.visit.id}
                 kind="chassis"
+                single
                 label={tr('Chassis photo')}
                 stampTitle={`${title} · Chassis`}
                 place={place}
@@ -394,6 +395,7 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
               <PhotoButton
                 visitId={d.visit.id}
                 kind="tractor"
+                single
                 label={tr('Tractor photo')}
                 stampTitle={`${title} · Tractor`}
                 place={place}
@@ -405,6 +407,7 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
               <PhotoButton
                 visitId={d.visit.id}
                 kind="meter"
+                single
                 label={tr('Meter photo')}
                 stampTitle={`${title} · Meter ${t.meter_reading ?? ''} ${UNIT_LABEL[t.meter_unit ?? 'km']}`}
                 place={place}

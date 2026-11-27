@@ -24,6 +24,7 @@ export default function PhotoButton({
   photos,
   onChange,
   required,
+  single,
 }: {
   visitId: number;
   kind: PhotoKind | 'facility' | 'meter' | 'document';
@@ -36,6 +37,8 @@ export default function PhotoButton({
   photos: Photo[];
   onChange: (photos: Photo[]) => void;
   required?: boolean;
+  /** Only one photo: a new one replaces the old ("Retake"). */
+  single?: boolean;
 }) {
   const [shooting, setShooting] = useState(false);
   useBackClose(shooting, () => setShooting(false));
@@ -72,7 +75,8 @@ export default function PhotoButton({
         form.append('lng', String(fix.lng));
       }
       const p = await api.post<Photo>(`/visits/${visitId}/photos`, form);
-      latest.current = [...latest.current, p];
+      const replaced = (p as Photo & { replaced?: number[] }).replaced ?? [];
+      latest.current = [...latest.current.filter((x) => !replaced.includes(x.id) && !(single && x.id !== p.id)), p];
       onChange(latest.current);
       setPending((list) => list.filter((x) => x.key !== item.key));
       URL.revokeObjectURL(item.url);
@@ -135,7 +139,7 @@ export default function PhotoButton({
               <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
               <circle cx="12" cy="13" r="3.5" />
             </svg>
-            {photos.length || pending.length ? t('Add another') : label}
+            {photos.length || pending.length ? t(single ? 'Retake' : 'Add another') : label}
           </button>
         )}
       </div>
