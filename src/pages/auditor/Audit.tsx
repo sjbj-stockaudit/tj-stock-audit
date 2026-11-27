@@ -369,7 +369,8 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
                 </div>
                 <div className="text-xs text-slate-500">
                   {t.engine_no && `${tr('Engine')} ${t.engine_no} · `}
-                  {tr('Meter')} {t.meter_reading} {tr(UNIT_LABEL[t.meter_unit ?? 'km'])} · {loc ? `📍 ${loc.name}` : tr('At the centre')}
+                  {t.meter_reading == null ? tr('Meter cannot be read') : `${tr('Meter')} ${t.meter_reading} ${tr(UNIT_LABEL[t.meter_unit ?? 'km'])}`} ·{' '}
+                  {loc ? `📍 ${loc.name}` : tr('At the centre')}
                 </div>
                 {t.remarks && <div className="text-xs text-slate-600">💬 {t.remarks}</div>}
               </div>
@@ -445,6 +446,9 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
   const [engine, setEngine] = useState('');
   const [meter, setMeter] = useState('');
   const [remarks, setRemarks] = useState('');
+  // Meter could not be read (no battery, faulty…): reason instead of a made-up 0
+  const [meterUnreadable, setMeterUnreadable] = useState(false);
+  const [meterReason, setMeterReason] = useState('');
   const [unit, setUnit] = useState<'km' | 'hours'>(() => {
     try {
       return localStorage.getItem(UNIT_KEY) === 'hours' ? 'hours' : 'km';
@@ -471,8 +475,9 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
         reg_no: reg,
         chassis_no: chassis,
         engine_no: engine,
-        meter_reading: meter,
+        meter_reading: meterUnreadable ? null : meter,
         meter_unit: unit,
+        meter_unreadable: meterUnreadable ? meterReason || 'Not readable' : null,
         location_id: loc,
         remarks,
         confirm_chassis: firstTyped,
@@ -511,17 +516,29 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
       <Field label={tr('Engine number')}>
         <input className={`${inputCls} font-mono uppercase`} value={engine} onChange={(e) => setEngine(e.target.value.toUpperCase())} />
       </Field>
-      <Field label={tr('Meter reading *')}>
-        <div className="flex gap-2">
-          <input className={inputCls} type="number" inputMode="decimal" min={0} step="0.1" value={meter} onChange={(e) => setMeter(e.target.value)} aria-label="Meter reading" />
-          <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-300 text-sm">
-            {(['km', 'hours'] as const).map((u) => (
-              <button key={u} type="button" onClick={() => setUnit(u)} className={cx('px-3', unit === u ? 'bg-brand-800 text-white' : 'bg-white text-slate-700')}>
-                {tr(UNIT_LABEL[u])}
-              </button>
-            ))}
+      <Field group label={tr('Meter reading *')}>
+        {!meterUnreadable && (
+          <div className="flex gap-2">
+            <input className={inputCls} type="number" inputMode="decimal" min={0} step="0.1" value={meter} onChange={(e) => setMeter(e.target.value)} aria-label="Meter reading" />
+            <div className="flex shrink-0 overflow-hidden rounded-lg border border-slate-300 text-sm">
+              {(['km', 'hours'] as const).map((u) => (
+                <button key={u} type="button" onClick={() => setUnit(u)} className={cx('px-3', unit === u ? 'bg-brand-800 text-white' : 'bg-white text-slate-700')}>
+                  {tr(UNIT_LABEL[u])}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={meterUnreadable} onChange={(e) => setMeterUnreadable(e.target.checked)} />
+          {tr('Meter cannot be read')}
+        </label>
+        {meterUnreadable && (
+          <div className="mt-2">
+            <ChoiceChips options={METER_REASONS} value={meterReason} onChange={setMeterReason} />
+            <p className="mt-1 text-xs text-slate-500">{tr('Still take the meter photo as proof.')}</p>
+          </div>
+        )}
       </Field>
       {d.locations.length > 0 && (
         <Field label={tr('Where is this tractor?')}>
@@ -535,16 +552,11 @@ function RecordTractor({ d, location, onSaved }: { d: VisitDetail; location: num
           </select>
         </Field>
       )}
-      <Field label={tr('Remark (optional)')}>
-        <input
-          className={inputCls}
-          value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
-          placeholder={tr("e.g. customer's tractor in for service – job card photographed")}
-        />
+      <Field group label={tr('Remark (optional)')}>
+        <ChoiceChips options={TRACTOR_REMARKS} value={remarks} onChange={setRemarks} />
       </Field>
       <ErrorBox error={error} />
-      <Button size="lg" onClick={save} busy={busy} disabled={!chassis.trim() || meter === ''}>
+      <Button size="lg" onClick={save} busy={busy} disabled={!chassis.trim() || (meter === '' && !meterUnreadable)}>
         {tr('Save, then take photos')}
       </Button>
     </div>
@@ -690,9 +702,10 @@ function Accessories({ d, place, setD }: { d: VisitDetail; place: string; setD: 
             <input className={inputCls} type="number" inputMode="numeric" min={0} value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} />
           </Field>
         </div>
-        <Field label={tr('Remarks')}>
-          <input className={inputCls} value={f.remarks} onChange={(e) => setF({ ...f, remarks: e.target.value })} placeholder={tr('e.g. 2 bundles of 5, 2 unpacked')} />
+        <Field group label={tr('Condition / remarks')}>
+          <ChoiceChips options={ACCESSORY_CONDITION} value={f.remarks} onChange={(r) => setF({ ...f, remarks: r })} otherPlaceholder={tr('e.g. 2 bundles of 5, 2 unpacked')} />
         </Field>
+        <p className="text-xs text-slate-500">{tr('Add only items that are actually at the centre – do not add items that are not there.')}</p>
         <ErrorBox error={error} />
         <Button onClick={add} busy={busy} disabled={!f.name.trim()}>
           {tr('Add, then take photo')}
@@ -783,12 +796,16 @@ function Facility({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
                 onChange={(ps) => setD((x) => replacePhotos(x, (p) => p.facility_id !== f.id, ps))}
               />
             )}
-            <RemarkInput
-              value={f.remarks ?? ''}
-              placeholder={tr(f.rating === 'poor' || f.rating === 'na' ? 'Remark (required)' : 'Remark (optional) – e.g. racks labelled, batteries on floor')}
-              onSave={(text) => save(f, { remarks: text })}
-              label={`Remark for ${f.area}`}
-            />
+            {f.rating === 'na' ? (
+              <SavedChoices options={['Not at this centre']} value={f.remarks ?? ''} onSave={(text) => save(f, { remarks: text })} />
+            ) : (
+              <RemarkInput
+                value={f.remarks ?? ''}
+                placeholder={tr(f.rating === 'poor' ? 'Remark (required)' : 'Remark (optional) – e.g. racks labelled, batteries on floor')}
+                onSave={(text) => save(f, { remarks: text })}
+                label={`Remark for ${f.area}`}
+              />
+            )}
             {!!f.is_custom && (
               <button onClick={() => remove(f)} className="text-sm text-red-600">
                 {tr('Remove this area')}
@@ -1124,14 +1141,15 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
       )}
 
       {counted && !!pending && (
-        <Field label={tr("Manager's explanation for the tractors not shown *")}>
-          <textarea
-            className={inputCls}
-            rows={3}
+        <Field group label={tr("Manager's explanation for the tractors not shown *")}>
+          <SavedChoices
+            options={NOT_SHOWN_REASONS}
             value={explanation}
-            onChange={(e) => setExplanation(e.target.value)}
-            onBlur={() => api.put(`/visits/${v.id}/explanation`, { missing_explanation: explanation }).catch(() => {})}
-            placeholder={tr('e.g. 2 sold, invoice not yet sent to the office; 1 with a customer for a demo')}
+            otherPlaceholder={tr('e.g. customer name and village, invoice number')}
+            onSave={(text) => {
+              setExplanation(text);
+              void api.put(`/visits/${v.id}/explanation`, { missing_explanation: text }).catch(() => {});
+            }}
           />
         </Field>
       )}
@@ -1366,6 +1384,129 @@ function RemarkInput({ value, placeholder, onSave, label }: { value: string; pla
       }}
       onBlur={() => flush(text)}
       aria-label={label}
+    />
+  );
+}
+
+// ------------------------------------------------------------------ standard remarks
+
+const TRACTOR_REMARKS = [
+  'No number plate',
+  'Battery not fitted',
+  'Engine number not visible',
+  'Chassis plate damaged / unclear',
+  'Tractor damaged',
+  "Customer's tractor (in for service)",
+  'Demo tractor',
+  'Kept outside / in the open',
+];
+const METER_REASONS = ['No battery', 'Meter faulty'];
+const NOT_SHOWN_REASONS = [
+  'Sold – stock statement not updated',
+  'At another yard',
+  'Out with a customer on demo',
+  'Transferred to another centre',
+  'Under repair',
+  'No explanation given',
+];
+const ACCESSORY_CONDITION = ['New', 'Old', 'New and old'];
+
+const splitChoices = (v: string) => v.split(';').map((x) => x.trim()).filter(Boolean);
+
+/**
+ * Tap-to-choose standard remarks (several allowed) plus "Other" for anything else.
+ * Choices are stored in English so reports read the same whatever language the auditor uses.
+ */
+function ChoiceChips({
+  options,
+  value,
+  onChange,
+  otherPlaceholder,
+  detailsAlways,
+}: {
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+  otherPlaceholder?: string;
+  /** show the text box all the time (for details), not only after tapping Other */
+  detailsAlways?: boolean;
+}) {
+  const tr = useT();
+  const parts = splitChoices(value);
+  const chosen = options.filter((o) => parts.includes(o));
+  const other = parts.filter((p) => !options.includes(p)).join('; ');
+  const [showOther, setShowOther] = useState(!!other);
+  const compose = (c: string[], o: string) => [...options.filter((x) => c.includes(x)), o.trim()].filter(Boolean).join('; ');
+  const toggle = (o: string) => onChange(compose(chosen.includes(o) ? chosen.filter((x) => x !== o) : [...chosen, o], other));
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <button
+            key={o}
+            type="button"
+            aria-pressed={chosen.includes(o)}
+            onClick={() => toggle(o)}
+            className={cx('rounded-full border px-3 py-1.5 text-xs', chosen.includes(o) ? 'border-brand-800 bg-brand-800 text-white' : 'border-slate-300 bg-white text-slate-700')}
+          >
+            {chosen.includes(o) && '✓ '}
+            {tr(o)}
+          </button>
+        ))}
+        {!detailsAlways && (
+          <button
+            type="button"
+            aria-pressed={showOther}
+            onClick={() => {
+              if (showOther) onChange(compose(chosen, ''));
+              setShowOther(!showOther);
+            }}
+            className={cx('rounded-full border px-3 py-1.5 text-xs', showOther ? 'border-brand-800 bg-brand-800 text-white' : 'border-slate-300 bg-white text-slate-700')}
+          >
+            {showOther && '✓ '}
+            {tr('Other')}
+          </button>
+        )}
+      </div>
+      {(showOther || detailsAlways) && (
+        <input
+          className={inputCls}
+          value={other}
+          onChange={(e) => onChange(compose(chosen, e.target.value))}
+          placeholder={otherPlaceholder ?? tr('Type the reason')}
+          aria-label="Other reason"
+        />
+      )}
+    </div>
+  );
+}
+
+/** ChoiceChips that save by themselves (shortly after the last change, and when the screen closes). */
+function SavedChoices({ options, value, onSave, otherPlaceholder }: { options: string[]; value: string; onSave: (v: string) => void; otherPlaceholder?: string }) {
+  const [v, setV] = useState(value);
+  const saved = useRef(value);
+  const latest = useRef(v);
+  latest.current = v;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flush = (t: string) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    if (t !== saved.current) {
+      saved.current = t;
+      onSave(t);
+    }
+  };
+  useEffect(() => () => flush(latest.current), []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <ChoiceChips
+      options={options}
+      value={v}
+      otherPlaceholder={otherPlaceholder}
+      onChange={(t) => {
+        setV(t);
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => flush(t), 700);
+      }}
     />
   );
 }

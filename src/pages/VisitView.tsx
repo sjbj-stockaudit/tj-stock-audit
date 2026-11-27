@@ -168,10 +168,14 @@ export default function VisitView() {
             </dd>
             <dt className="text-slate-500">Check-in</dt>
             <dd>{fmtDateTime(v.checkin_at)}</dd>
-            <dt className="text-slate-500">Check-out</dt>
-            <dd>{fmtDateTime(v.checkout_at)}</dd>
-            <dt className="text-slate-500">Time on site</dt>
-            <dd>{fmtHours(hoursBetween(v.checkin_at, v.checkout_at))}</dd>
+            {isAdmin && (
+              <>
+                <dt className="text-slate-500">Check-out</dt>
+                <dd>{fmtDateTime(v.checkout_at)}</dd>
+                <dt className="text-slate-500">Time on site</dt>
+                <dd>{fmtHours(hoursBetween(v.checkin_at, v.checkout_at))}</dd>
+              </>
+            )}
             {isAdmin && (
               <>
                 <dt className="text-slate-500">Check-in distance</dt>

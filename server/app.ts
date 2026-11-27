@@ -521,6 +521,8 @@ app.get('/visits', requireRole('admin', 'auditor', 'client'), async (c) => {
   )
     .bind(...vals)
     .all<Record<string, unknown>>();
+  // The client is not shown when the audit finished (it would show how long it took)
+  if (user.role === 'client') for (const r of results) (r.checkout_at = null), (r.submitted_at = null);
   // Blind count: auditors never see how many tractors the stock list has
   if (user.role === 'auditor')
     for (const r of results) for (const k of ['inventory_count', 'pending_count', 'verified_count', 'mismatch_count', 'not_found_count', 'extra_count']) r[k] = null;
@@ -556,7 +558,7 @@ app.get('/visits/:id', requireRole(), async (c) => {
   const row = visit.results[0] as Record<string, unknown>;
   if (c.get('user').role === 'client') {
     // Staff location data is for the audit firm's internal use only.
-    for (const k of ['checkin_lat', 'checkin_lng', 'checkin_accuracy', 'checkin_distance_m', 'checkout_lat', 'checkout_lng', 'review_note'])
+    for (const k of ['checkin_lat', 'checkin_lng', 'checkin_accuracy', 'checkin_distance_m', 'checkout_lat', 'checkout_lng', 'review_note', 'checkout_at', 'submitted_at'])
       delete row[k];
   }
   return c.json({
@@ -813,12 +815,15 @@ app.post('/visits/:id/seen', requireRole('auditor'), async (c) => {
   const reg = str(b.reg_no, 40)?.toUpperCase() ?? null;
   const chassis = str(b.chassis_no, 60)?.toUpperCase() ?? null;
   const engine = str(b.engine_no, 60)?.toUpperCase() ?? null;
-  const remarks = str(b.remarks, 500);
+  let remarks = str(b.remarks, 500);
   const key = idKey(chassis);
   if (key.length < 5) return bad(c, 'Enter the full chassis number punched on the tractor.');
-  const meter = num(b.meter_reading);
-  if (meter === null || meter < 0) return bad(c, 'Enter the meter reading.');
-  const unit = METER_UNITS.includes(String(b.meter_unit)) ? String(b.meter_unit) : 'km';
+  // Meter that cannot be read (no battery, faulty…): no reading – the reason goes into the remark
+  const unreadable = str(b.meter_unreadable, 120);
+  const meter = unreadable ? null : num(b.meter_reading);
+  if (!unreadable && (meter === null || meter < 0)) return bad(c, 'Enter the meter reading.');
+  const unit = unreadable ? null : METER_UNITS.includes(String(b.meter_unit)) ? String(b.meter_unit) : 'km';
+  if (unreadable) remarks = [`Meter not readable – ${unreadable}`, remarks].filter(Boolean).join('; ');
   const locationId = num(b.location_id);
   if (locationId) {
     const l = await c.env.DB.prepare('SELECT 1 FROM visit_locations WHERE id = ? AND visit_id = ?').bind(locationId, v.id).first();

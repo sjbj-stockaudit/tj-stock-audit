@@ -271,7 +271,7 @@ function addCentreSheet(wb: ExcelJS.Workbook, d: VisitDetail, s: Settings, logos
 
   ws.addRow([]);
   ws.addRow(['Name of Auditor:', v.auditor_name ?? '', '', 'Name of Manager:', `${v.manager_name ?? ''}${v.manager_phone ? ` (${v.manager_phone})` : ''}`]);
-  ws.addRow(['Check-in:', fmtDateTime(v.checkin_at), '', 'Check-out:', fmtDateTime(v.checkout_at)]);
+  ws.addRow(['Check-in:', fmtDateTime(v.checkin_at)]);
   if (v.general_remarks) ws.addRow(['General remarks (auditor):', v.general_remarks]);
   if (v.office_remarks) {
     const r = ws.addRow(["Reviewer's remarks:", v.office_remarks]);
@@ -391,7 +391,6 @@ function photoPdf(
       ...(v.count_done_at ? [['First count', `${fmtDateTime(v.count_done_at)}${v.pending_at_count != null ? ` · ${v.pending_at_count} not shown at that point` : ''}`]] : []),
       ...(v.missing_explanation ? [["Manager's explanation (not shown)", v.missing_explanation]] : []),
       ['Check-in', fmtDateTime(v.checkin_at)],
-      ['Check-out', fmtDateTime(v.checkout_at)],
       ...(v.general_remarks ? [['General remarks (auditor)', v.general_remarks]] : []),
       ...(v.office_remarks ? [["Reviewer's remarks", v.office_remarks]] : []),
     ],
