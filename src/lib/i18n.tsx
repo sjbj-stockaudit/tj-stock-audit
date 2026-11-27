@@ -335,6 +335,24 @@ const HI: Record<string, string> = {
     'इस ट्रैक्टर पर वापस जाएँ, चेसिस प्लेट फिर से ध्यान से पढ़ें और नंबर ठीक करें। फोटो और मीटर रीडिंग वैसी ही रहेंगी।',
   'Save correction': 'सुधार सेव करें',
 
+  "Write the manager's explanation for the tractors not shown": 'जो ट्रैक्टर नहीं दिखाए गए, उनके लिए मैनेजर का कारण लिखें',
+  'Before you can submit, fix these': 'जमा करने से पहले ये ठीक करें',
+  'Go there': 'वहाँ जाएँ',
+  'Fix each item, then tap Submit again.': 'हर बात ठीक करें, फिर दोबारा जमा करें दबाएँ।',
+  'chassis photo': 'चेसिस फोटो',
+  'tractor photo': 'ट्रैक्टर फोटो',
+  'meter photo': 'मीटर फोटो',
+  'Tractor {x}: {what} missing': 'ट्रैक्टर {x}: {what} बाकी',
+  'Accessory {x}: photo missing': 'एक्सेसरी {x}: फोटो बाकी',
+  'Facility – "{x}": choose Good, Average, Poor or N/A – or tap "Remove this area" if it was added by mistake':
+    'सुविधा – "{x}": अच्छा, ठीक-ठाक, खराब या लागू नहीं चुनें – या गलती से जोड़ा हो तो "यह जगह हटाएँ" दबाएँ',
+  'Facility – "{x}": choose Good, Average, Poor or N/A': 'सुविधा – "{x}": अच्छा, ठीक-ठाक, खराब या लागू नहीं चुनें',
+  'Facility – "{x}": take a photo': 'सुविधा – "{x}": फोटो लें',
+  'Facility – "{x}": write a remark (needed for Poor and N/A)': 'सुविधा – "{x}": रिमार्क लिखें (खराब और लागू नहीं पर ज़रूरी)',
+  "Enter the manager's name": 'मैनेजर का नाम लिखें',
+  'Manager has not signed – sign in the box and tap "Save signature"': 'मैनेजर ने हस्ताक्षर नहीं किए – बॉक्स में हस्ताक्षर करके "हस्ताक्षर सेव करें" दबाएँ',
+  'Your signature is missing – sign in the box and tap "Save signature"': 'आपके हस्ताक्षर बाकी हैं – बॉक्स में हस्ताक्षर करके "हस्ताक्षर सेव करें" दबाएँ',
+
   // error screen
   'Something went wrong on this screen': 'इस स्क्रीन पर कुछ गड़बड़ हो गई',
   'Your saved work is safe. Try reloading. If it keeps happening, send a screenshot of this message to the office.':

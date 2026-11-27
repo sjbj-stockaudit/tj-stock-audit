@@ -933,19 +933,42 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
     }
   }
 
+  // Everything still missing before the audit can be submitted – specific, so the auditor can fix it alone
   const problems = useMemo(() => {
     const p: { msg: string; tab: Tab }[] = [];
-    const lack = (k: 'chassis' | 'tractor' | 'meter') => seen.filter((t) => missingPhotos(d, t)[k]).length;
-    if (lack('chassis')) p.push({ msg: tr('{n} tractor(s) without chassis photo', { n: lack('chassis') }), tab: 'tractors' });
-    if (lack('tractor')) p.push({ msg: tr('{n} tractor(s) without tractor photo', { n: lack('tractor') }), tab: 'tractors' });
-    if (lack('meter')) p.push({ msg: tr('{n} tractor(s) without meter photo', { n: lack('meter') }), tab: 'tractors' });
-    const accNo = d.accessories.filter((a) => !d.photos.some((x) => x.accessory_id === a.id));
-    if (accNo.length) p.push({ msg: tr('{n} accessory item(s) without photo', { n: accNo.length }), tab: 'accessories' });
+    const name = (t: SeenTractor) => t.reg_no || t.chassis_no || '';
+    for (const t of seen) {
+      const miss = missingPhotos(d, t);
+      const what = [miss.chassis && tr('chassis photo'), miss.tractor && tr('tractor photo'), miss.meter && tr('meter photo')].filter(Boolean).join(', ');
+      if (what) p.push({ msg: tr('Tractor {x}: {what} missing', { x: name(t), what }), tab: 'tractors' });
+    }
+    for (const a of d.accessories.filter((a) => !d.photos.some((x) => x.accessory_id === a.id)))
+      p.push({ msg: tr('Accessory {x}: photo missing', { x: a.name }), tab: 'accessories' });
     if (!d.photos.some((x) => x.kind === 'storefront')) p.push({ msg: tr('Storefront photo not taken (top of the page)'), tab: 'tractors' });
-    const fac = d.facility.filter((f) => facilityProblem(f, d.photos.filter((x) => x.facility_id === f.id).length));
-    if (fac.length) p.push({ msg: tr('{n} facility area(s) not complete', { n: fac.length }), tab: 'facility' });
+    for (const f of d.facility) {
+      const why = facilityProblem(f, d.photos.filter((x) => x.facility_id === f.id).length);
+      if (!why) continue;
+      const area = tr(f.area);
+      const msg =
+        why === 'condition not rated'
+          ? f.is_custom
+            ? tr('Facility – "{x}": choose Good, Average, Poor or N/A – or tap "Remove this area" if it was added by mistake', { x: area })
+            : tr('Facility – "{x}": choose Good, Average, Poor or N/A', { x: area })
+          : why === 'photo missing'
+            ? tr('Facility – "{x}": take a photo', { x: area })
+            : tr('Facility – "{x}": write a remark (needed for Poor and N/A)', { x: area });
+      p.push({ msg, tab: 'facility' });
+    }
     return p;
   }, [d, seen, tr]);
+  // Items on this Finish screen itself
+  const finishProblems = [
+    !!pending && !explanation.trim() && tr("Write the manager's explanation for the tractors not shown"),
+    !manager.trim() && tr("Enter the manager's name"),
+    !v.has_manager_signature && tr('Manager has not signed – sign in the box and tap "Save signature"'),
+    !v.has_auditor_signature && tr('Your signature is missing – sign in the box and tap "Save signature"'),
+  ].filter(Boolean) as string[];
+  const [checklist, setChecklist] = useState<string[] | null>(null);
 
   async function saveSig(who: 'auditor' | 'manager', png: Blob) {
     setSigBusy(who);
@@ -978,7 +1001,8 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
       onSubmitted();
       navigate('/');
     } catch (e) {
-      setError({ msg: (e as Error).message, problems: e instanceof ApiError ? e.problems : [] });
+      if (e instanceof ApiError && e.problems.length) setChecklist(e.problems.map((x) => tr(x)));
+      else setError({ msg: (e as Error).message });
     } finally {
       setBusy(false);
     }
@@ -1171,9 +1195,12 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
           <ErrorBox error={error?.msg} problems={error?.problems} />
           <Button
             size="lg"
-            onClick={submit}
+            onClick={() => {
+              const all = [...problems.map((x) => x.msg), ...finishProblems];
+              if (all.length) setChecklist(all);
+              else void submit();
+            }}
             busy={busy}
-            disabled={problems.length > 0 || !manager.trim() || !v.has_auditor_signature || !v.has_manager_signature || (!!pending && !explanation.trim())}
           >
             {tr('Submit audit and check out')}
           </Button>
@@ -1201,6 +1228,34 @@ function Finish({ d, setD, onSubmitted, goTo }: { d: VisitDetail; setD: SetD; on
           )}
           <Button onClick={() => setPopup(false)}>{tr('OK')}</Button>
         </div>
+      </Modal>
+      <Modal open={!!checklist} onClose={() => setChecklist(null)} title={tr('Before you can submit, fix these')}>
+        {checklist && (
+          <div className="space-y-2">
+            {checklist.map((m) => {
+              const tab = problems.find((x) => x.msg === m)?.tab;
+              return (
+                <div key={m} className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-900">
+                  <span>⚠ {m}</span>
+                  {tab && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setChecklist(null);
+                        goTo(tab);
+                      }}
+                    >
+                      {tr('Go there')}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+            <p className="text-xs text-slate-500">{tr('Fix each item, then tap Submit again.')}</p>
+            <Button onClick={() => setChecklist(null)}>{tr('OK')}</Button>
+          </div>
+        )}
       </Modal>
       <Modal open={!!fixing} onClose={() => setFixing(null)} title={tr('Fix chassis no.')}>
         {fixing && (
