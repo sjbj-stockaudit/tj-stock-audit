@@ -911,6 +911,16 @@ app.patch('/tractors/:id', requireRole('admin'), async (c) => {
  * Correct the numbers of a tractor the auditor recorded that did not match the records (typo).
  * If it now matches a stock tractor, its photos, meter and place move to that tractor.
  */
+/** The auditor adds or changes the remark on a tractor they recorded (any time before submitting). */
+app.put('/seen/:id/remark', requireRole('auditor'), async (c) => {
+  const r = await tractorFor(c, Number(c.req.param('id')));
+  if (r instanceof Response) return r;
+  if (r.t.status === 'pending' || r.t.status === 'not_found') return bad(c, 'Tractor not found.', 404);
+  const b = await c.req.json<{ remarks?: string }>();
+  await c.env.DB.prepare('UPDATE tractors SET remarks = ?, updated_at = ? WHERE id = ?').bind(str(b.remarks, 500), now(), r.t.id).run();
+  return c.json({ ok: true });
+});
+
 app.patch('/seen/:id', requireRole('auditor'), async (c) => {
   const r = await tractorFor(c, Number(c.req.param('id')));
   if (r instanceof Response) return r;

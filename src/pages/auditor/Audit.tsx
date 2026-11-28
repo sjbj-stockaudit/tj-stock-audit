@@ -372,7 +372,7 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
                   {t.meter_reading == null ? tr('Meter cannot be read') : `${tr('Meter')} ${t.meter_reading} ${tr(UNIT_LABEL[t.meter_unit ?? 'km'])}`} ·{' '}
                   {loc ? `📍 ${loc.name}` : tr('At the centre')}
                 </div>
-                {t.remarks && <div className="text-xs text-slate-600">💬 {t.remarks}</div>}
+
               </div>
               {open && (
                 <button onClick={() => remove(t)} className="shrink-0 text-sm text-red-600">
@@ -380,6 +380,10 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
                 </button>
               )}
             </div>
+            <TractorRemark
+              t={t}
+              onSaved={(text) => setD((x) => ({ ...x, tractors: x.tractors.map((y) => (y.id === t.id ? ({ ...y, remarks: text } as Tractor) : y)) }))}
+            />
             <div className="space-y-3">
               <PhotoButton
                 visitId={d.visit.id}
@@ -1508,5 +1512,33 @@ function SavedChoices({ options, value, onSave, otherPlaceholder }: { options: s
         timer.current = setTimeout(() => flush(t), 700);
       }}
     />
+  );
+}
+
+/**
+ * Remark on a recorded tractor, editable until the audit is submitted (tap-to-choose + Other, saved by itself).
+ * A "Meter not readable – …" note comes from the meter section and is kept as it is.
+ */
+function TractorRemark({ t, onSaved }: { t: SeenTractor; onSaved: (text: string) => void }) {
+  const tr = useT();
+  const parts = splitChoices(t.remarks ?? '');
+  const meterNote = parts.filter((p) => p.startsWith('Meter not readable'));
+  const editable = parts.filter((p) => !p.startsWith('Meter not readable')).join('; ');
+  return (
+    <div className="rounded-lg bg-slate-50 p-2">
+      <div className="mb-1 text-xs font-medium text-slate-600">
+        {tr('Remark (optional)')}
+        {meterNote.length > 0 && <span className="ml-1 font-normal text-slate-500">· {tr('Meter cannot be read')}</span>}
+      </div>
+      <SavedChoices
+        options={TRACTOR_REMARKS}
+        value={editable}
+        onSave={(text) => {
+          const full = [...meterNote, ...splitChoices(text)].join('; ');
+          onSaved(full);
+          void api.put(`/seen/${t.id}/remark`, { remarks: full }).catch(() => {});
+        }}
+      />
+    </div>
   );
 }
