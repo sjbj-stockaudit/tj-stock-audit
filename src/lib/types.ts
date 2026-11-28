@@ -152,6 +152,7 @@ export type VisitDetail = {
     manager_phone?: string | null;
     same_day_open?: boolean;
     office_remarks?: string | null;
+    extended_on?: string | null;
   };
   tractors: Tractor[];
   locations: VisitLocation[];

@@ -734,7 +734,9 @@ const istDate = (iso: string) => new Date(Date.parse(iso) + 5.5 * 3600_000).toIS
 
 /** Tractors can only be recorded on the day the auditor checked in – the audit closes the same day. */
 function auditDayOpen(v: Visit) {
-  return !v.checkin_at || istDate(v.checkin_at) === istDate(now());
+  const today = istDate(now());
+  // the office can allow one more day as an exception (shown on the audit and in the report)
+  return !v.checkin_at || istDate(v.checkin_at) === today || (v as Visit & { extended_on?: string | null }).extended_on === today;
 }
 const DAY_OVER = 'The audit day is over – tractors can only be recorded on the day of check-in. Submit the audit now; tractors not shown will be reported as short.';
 

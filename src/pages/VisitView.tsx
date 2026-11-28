@@ -168,6 +168,12 @@ export default function VisitView() {
             </dd>
             <dt className="text-slate-500">Check-in</dt>
             <dd>{fmtDateTime(v.checkin_at)}</dd>
+            {v.extended_on && (
+              <>
+                <dt className="text-slate-500">Continued on</dt>
+                <dd className="font-medium text-amber-800">{fmtDate(v.extended_on)} (office exception)</dd>
+              </>
+            )}
             {isAdmin && (
               <>
                 <dt className="text-slate-500">Check-out</dt>
