@@ -907,10 +907,6 @@ app.patch('/tractors/:id', requireRole('admin'), async (c) => {
 });
 
 /** Auditor has finished counting what was shown: tell them only HOW MANY stock tractors were not shown. */
-/**
- * Correct the numbers of a tractor the auditor recorded that did not match the records (typo).
- * If it now matches a stock tractor, its photos, meter and place move to that tractor.
- */
 /** The auditor adds or changes the remark on a tractor they recorded (any time before submitting). */
 app.put('/seen/:id/remark', requireRole('auditor'), async (c) => {
   const r = await tractorFor(c, Number(c.req.param('id')));
@@ -921,46 +917,91 @@ app.put('/seen/:id/remark', requireRole('auditor'), async (c) => {
   return c.json({ ok: true });
 });
 
+/**
+ * Edit a recorded tractor's numbers (plate / engine / chassis) – photos, meter, place and remark are kept.
+ * Plate or engine only: saved as is. A changed chassis is matched again: it may now match a stock tractor
+ * (look-alikes must be re-typed, as when recording), or become an extra; a stock tractor it no longer
+ * matches goes back to "not shown".
+ */
 app.patch('/seen/:id', requireRole('auditor'), async (c) => {
   const r = await tractorFor(c, Number(c.req.param('id')));
   if (r instanceof Response) return r;
   const { t, v } = r;
   if (!auditDayOpen(v)) return bad(c, DAY_OVER, 409);
-  if (t.source !== 'extra') return bad(c, 'This tractor already matches the records.');
+  if (t.status === 'pending' || t.status === 'not_found') return bad(c, 'Tractor not found.', 404);
   const b = await c.req.json<Record<string, unknown>>();
   const reg = str(b.reg_no, 40)?.toUpperCase() ?? null;
   const chassis = str(b.chassis_no, 60)?.toUpperCase() ?? null;
   const engine = str(b.engine_no, 60)?.toUpperCase() ?? null;
   const key = idKey(chassis);
   if (key.length < 5) return bad(c, 'Enter the full chassis number punched on the tractor.');
-  const { results: rows } = await c.env.DB.prepare('SELECT * FROM tractors WHERE visit_id = ? AND id != ?').bind(v.id, t.id).all<TractorRow>();
+  const at = now();
+  const db = c.env.DB;
+  const back = async (id: number) => c.json({ old_id: t.id, tractor: auditorView([(await db.prepare('SELECT * FROM tractors WHERE id = ?').bind(id).first<TractorRow>())!])[0] });
+
+  // Same chassis: only plate / engine change
+  if (key === t.chassis_key) {
+    await db
+      .prepare(
+        t.source === 'extra'
+          ? 'UPDATE tractors SET reg_no = ?, engine_no = ?, verified_reg = ?, seen_engine = ?, updated_at = ? WHERE id = ?'
+          : 'UPDATE tractors SET verified_reg = ?, seen_engine = ?, updated_at = ? WHERE id = ?',
+      )
+      .bind(...(t.source === 'extra' ? [reg, engine, reg, engine, at, t.id] : [reg, engine, at, t.id]))
+      .run();
+    return back(t.id);
+  }
+
+  const { results: rows } = await db.prepare('SELECT * FROM tractors WHERE visit_id = ? AND id != ?').bind(v.id, t.id).all<TractorRow>();
   if (rows.some((x) => x.chassis_key === key)) return bad(c, 'This chassis number is already recorded in this audit.', 409);
-  const pending = rows.filter((x) => x.source === 'inventory' && x.status === 'pending');
+  // stock tractors still open – including this one's own stock row, which is released by the change
+  const pending = [...rows.filter((x) => x.source === 'inventory' && x.status === 'pending'), ...(t.source === 'inventory' ? [t] : [])];
   const exact = pending.find((x) => idKey(x.chassis_no) === key);
   const confirmed = !!b.confirm_chassis && idKey(b.confirm_chassis) === key;
   const suspect = exact ? null : suspectMatch(pending, chassis, reg);
   if (suspect && !confirmed) return c.json({ error: RETYPE_MSG, retype: true }, 409);
-  const at = now();
-  let id = t.id;
+
+  const seen = [t.meter_reading, t.meter_unit, t.location_id, t.seen_at, t.remarks] as const;
+  const release = db.prepare(
+    `UPDATE tractors SET status = 'pending', verified_reg = NULL, verified_chassis = NULL, seen_engine = NULL, meter_reading = NULL, meter_unit = NULL,
+       location_id = NULL, seen_at = NULL, chassis_key = NULL, retyped = NULL, remarks = NULL, updated_at = ? WHERE id = ?`,
+  );
   if (exact) {
-    await c.env.DB.batch([
-      c.env.DB.prepare(
-        `UPDATE tractors SET status = 'verified', verified_reg = ?, verified_chassis = ?, seen_engine = ?, meter_reading = ?, meter_unit = ?,
-           location_id = ?, seen_at = ?, chassis_key = ?, retyped = 1, remarks = ?, updated_at = ? WHERE id = ?`,
-      ).bind(reg, chassis, engine, t.meter_reading, t.meter_unit, t.location_id, t.seen_at, key, t.remarks, at, exact.id),
-      c.env.DB.prepare('UPDATE photos SET tractor_id = ? WHERE tractor_id = ?').bind(exact.id, t.id),
-      c.env.DB.prepare('DELETE FROM tractors WHERE id = ?').bind(t.id),
+    await db.batch([
+      ...(t.source === 'inventory' ? [release.bind(at, t.id)] : []),
+      db
+        .prepare(
+          `UPDATE tractors SET status = 'verified', verified_reg = ?, verified_chassis = ?, seen_engine = ?, meter_reading = ?, meter_unit = ?,
+             location_id = ?, seen_at = ?, chassis_key = ?, retyped = 1, remarks = ?, updated_at = ? WHERE id = ?`,
+        )
+        .bind(reg, chassis, engine, seen[0], seen[1], seen[2], seen[3], key, seen[4], at, exact.id),
+      db.prepare('UPDATE photos SET tractor_id = ? WHERE tractor_id = ?').bind(exact.id, t.id),
+      ...(t.source === 'extra' ? [db.prepare('DELETE FROM tractors WHERE id = ?').bind(t.id)] : []),
     ]);
-    id = exact.id;
-  } else
-    await c.env.DB.prepare(
-      `UPDATE tractors SET reg_no = ?, chassis_no = ?, engine_no = ?, verified_reg = ?, verified_chassis = ?, seen_engine = ?, chassis_key = ?,
-         related_id = ?, related_reason = ?, retyped = 1, updated_at = ? WHERE id = ?`,
-    )
+    return back(exact.id);
+  }
+  if (t.source === 'extra') {
+    await db
+      .prepare(
+        `UPDATE tractors SET reg_no = ?, chassis_no = ?, engine_no = ?, verified_reg = ?, verified_chassis = ?, seen_engine = ?, chassis_key = ?,
+           related_id = ?, related_reason = ?, retyped = 1, updated_at = ? WHERE id = ?`,
+      )
       .bind(reg, chassis, engine, reg, chassis, engine, key, suspect?.row.id ?? null, suspect?.reason ?? null, at, t.id)
       .run();
-  const row = await c.env.DB.prepare('SELECT * FROM tractors WHERE id = ?').bind(id).first<TractorRow>();
-  return c.json({ old_id: t.id, tractor: auditorView([row!])[0] });
+    return back(t.id);
+  }
+  // A matched stock tractor whose chassis now matches nothing: it becomes an extra, the stock row is released
+  const ins = await db
+    .prepare(
+      `INSERT INTO tractors (visit_id, source, sort_order, reg_no, chassis_no, engine_no, verified_reg, verified_chassis, seen_engine, status,
+         meter_reading, meter_unit, location_id, seen_at, chassis_key, related_id, related_reason, retyped, remarks, updated_at)
+       VALUES (?, 'extra', 100000, ?, ?, ?, ?, ?, ?, 'extra', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    )
+    .bind(v.id, reg, chassis, engine, reg, chassis, engine, seen[0], seen[1], seen[2], seen[3], key, suspect?.row.id ?? null, suspect?.reason ?? null, seen[4], at)
+    .run();
+  const newId = ins.meta.last_row_id as number;
+  await db.batch([release.bind(at, t.id), db.prepare('UPDATE photos SET tractor_id = ? WHERE tractor_id = ?').bind(newId, t.id)]);
+  return back(newId);
 });
 
 app.post('/visits/:id/count-done', requireRole('auditor'), async (c) => {

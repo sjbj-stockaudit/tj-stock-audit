@@ -336,6 +336,16 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
   const seen = seenOf(d);
   const open = d.visit.same_day_open !== false;
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<SeenTractor | null>(null);
+  const [q, setQ] = useState('');
+  const norm = (x: unknown) => String(x ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const shown = [...seen].reverse().filter((t) => {
+    if (!q.trim()) return true;
+    const k = norm(q);
+    return (
+      (k && [t.reg_no, t.chassis_no, t.engine_no].some((x) => norm(x).includes(k))) || String(t.remarks ?? '').toLowerCase().includes(q.trim().toLowerCase())
+    );
+  });
   // After the count is done, new tractors are most likely at the off-site place the auditor just checked in at
   const [where, setWhere] = useState<number | null>(d.visit.count_done_at && d.locations.length ? d.locations[d.locations.length - 1].id : null);
 
@@ -354,7 +364,20 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
           {tr('+ Record a tractor')}
         </Button>
       )}
-      {[...seen].reverse().map((t) => {
+      {seen.length > 3 && (
+        <div>
+          <input
+            className={inputCls}
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={tr('Search plate, chassis, engine or remark')}
+            aria-label="Search recorded tractors"
+          />
+          {q.trim() && <p className="mt-1 text-xs text-slate-500">{tr('{a} of {b} tractors', { a: shown.length, b: seen.length })}</p>}
+        </div>
+      )}
+      {shown.map((t) => {
         const miss = missingPhotos(d, t);
         const loc = t.location_id ? d.locations.find((l) => l.id === t.location_id) : null;
         const ps = d.photos.filter((p) => p.tractor_id === t.id);
@@ -375,9 +398,14 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
 
               </div>
               {open && (
-                <button onClick={() => remove(t)} className="shrink-0 text-sm text-red-600">
-                  {tr('Remove')}
-                </button>
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <button onClick={() => setEditing(t)} className="text-sm font-medium text-brand-800">
+                    {tr('Edit')}
+                  </button>
+                  <button onClick={() => remove(t)} className="text-sm text-red-600">
+                    {tr('Remove')}
+                  </button>
+                </div>
               )}
             </div>
             <TractorRemark
@@ -426,6 +454,21 @@ function Tractors({ d, place, setD }: { d: VisitDetail; place: string; setD: Set
         );
       })}
       {!seen.length && <p className="p-4 text-center text-sm text-slate-500">{tr('No tractors recorded yet.')}</p>}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={tr('Edit tractor')}>
+        {editing && (
+          <FixChassis
+            t={editing}
+            onSaved={(oldId, nt) => {
+              setEditing(null);
+              setD((x) => ({
+                ...x,
+                tractors: [...x.tractors.filter((y) => y.id !== oldId && y.id !== nt.id), nt as unknown as Tractor],
+                photos: x.photos.map((p) => (p.tractor_id === oldId ? { ...p, tractor_id: nt.id } : p)),
+              }));
+            }}
+          />
+        )}
+      </Modal>
       <Modal open={adding} onClose={() => setAdding(false)} title={tr('Record a tractor')}>
         <RecordTractor
           d={d}
@@ -1336,7 +1379,7 @@ function FixChassis({ t, onSaved }: { t: SeenTractor; onSaved: (oldId: number, n
   }
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-600">{tr('Go back to this tractor, read the chassis plate again carefully and correct the numbers. Photos and meter reading are kept.')}</p>
+      <p className="text-sm text-slate-600">{tr('Correct the numbers as they are on the tractor. Photos, meter reading and remark are kept.')}</p>
       <Field label={tr('Chassis number (as punched on the tractor) *')}>
         <input className={`${inputCls} font-mono uppercase`} value={chassis} onChange={(e) => setChassis(e.target.value.toUpperCase())} autoComplete="off" aria-label="Chassis number" />
       </Field>
@@ -1438,8 +1481,10 @@ function ChoiceChips({
   const tr = useT();
   const parts = splitChoices(value);
   const chosen = options.filter((o) => parts.includes(o));
-  const other = parts.filter((p) => !options.includes(p)).join('; ');
-  const [showOther, setShowOther] = useState(!!other);
+  const savedOther = parts.filter((p) => !options.includes(p)).join('; ');
+  // What the auditor is typing is kept exactly as typed (spaces included); it is tidied only in the saved value
+  const [other, setOther] = useState(savedOther);
+  const [showOther, setShowOther] = useState(!!savedOther);
   const compose = (c: string[], o: string) => [...options.filter((x) => c.includes(x)), o.trim()].filter(Boolean).join('; ');
   const toggle = (o: string) => onChange(compose(chosen.includes(o) ? chosen.filter((x) => x !== o) : [...chosen, o], other));
   return (
@@ -1462,7 +1507,10 @@ function ChoiceChips({
             type="button"
             aria-pressed={showOther}
             onClick={() => {
-              if (showOther) onChange(compose(chosen, ''));
+              if (showOther) {
+                setOther('');
+                onChange(compose(chosen, ''));
+              }
               setShowOther(!showOther);
             }}
             className={cx('rounded-full border px-3 py-1.5 text-xs', showOther ? 'border-brand-800 bg-brand-800 text-white' : 'border-slate-300 bg-white text-slate-700')}
@@ -1476,7 +1524,10 @@ function ChoiceChips({
         <input
           className={inputCls}
           value={other}
-          onChange={(e) => onChange(compose(chosen, e.target.value))}
+          onChange={(e) => {
+            setOther(e.target.value);
+            onChange(compose(chosen, e.target.value));
+          }}
           placeholder={otherPlaceholder ?? tr('Type the reason')}
           aria-label="Other reason"
         />

@@ -380,6 +380,12 @@ const HI: Record<string, string> = {
   'Add only items that are actually at the centre – do not add items that are not there.': 'सिर्फ़ वही सामान जोड़ें जो सेंटर पर सच में है – जो नहीं है उसे न जोड़ें।',
   'Not at this centre': 'इस सेंटर पर नहीं है',
 
+  Edit: 'बदलें',
+  'Edit tractor': 'ट्रैक्टर की जानकारी बदलें',
+  'Search plate, chassis, engine or remark': 'प्लेट, चेसिस, इंजन या रिमार्क से खोजें',
+  '{a} of {b} tractors': '{b} में से {a} ट्रैक्टर',
+  'Correct the numbers as they are on the tractor. Photos, meter reading and remark are kept.': 'नंबर वैसे ही ठीक करें जैसे ट्रैक्टर पर हैं। फोटो, मीटर रीडिंग और रिमार्क वैसे ही रहेंगे।',
+
   // error screen
   'Something went wrong on this screen': 'इस स्क्रीन पर कुछ गड़बड़ हो गई',
   'Your saved work is safe. Try reloading. If it keeps happening, send a screenshot of this message to the office.':
